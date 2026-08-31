@@ -108,11 +108,21 @@ function handleCommand(command) {
         return;
     }
 
+    // Rechtliche Seiten per Sprache aufrufen
+    if (command.includes('impressum')) {
+        speak("Öffne Impressum.", () => { window.location.href = 'impressum.html'; });
+        return;
+    }
+    if (command.includes('datenschutz')) {
+        speak("Öffne Datenschutzerklärung.", () => { window.location.href = 'datenschutz.html'; });
+        return;
+    }
+
     // Hilfe-Befehl für neue Nutzer
     if (command.includes('hilfe') || command.includes('befehle') || command.includes('optionen')) {
         playBeep(600, 0.1);
         speak(
-            "Mögliche Befehle sind: Text, Farbe, Objekt, Geld, Licht an, Licht aus, Wiederholen, oder Stopp zum Anhalten.", 
+            "Mögliche Befehle sind: Text, Farbe, Objekt, Geld, Licht an, Licht aus, Wiederholen, Impressum, Datenschutz oder Stopp zum Anhalten.", 
             () => startListening()
         );
         return;
@@ -246,10 +256,9 @@ async function init() {
         });
         video.srcObject = stream;
         
-      
-speak("SichtAssist bereit. Sage Text, Farbe, Objekt oder Geld. Für alle Optionen sage Hilfe.", () => {
-    startListening();
-});
+        speak("SichtAssist bereit. Sage Text, Farbe, Objekt oder Geld. Für alle Optionen sage Hilfe.", () => {
+            startListening();
+        });
 
     } catch (err) {
         console.error("Kamerafehler:", err);
@@ -266,6 +275,9 @@ window.addEventListener('DOMContentLoaded', () => {
 
 // Tippen auf den Bildschirm bricht eine laufende Ansage sofort ab (oder startet die App)
 document.body.addEventListener('click', (e) => {
+    // Klicks auf Links im Footer ignorieren, damit sie normal aufgerufen werden können
+    if (e.target.closest('.legal-footer')) return;
+
     if (!isStarted) {
         init();
     } else if (window.speechSynthesis.speaking) {
