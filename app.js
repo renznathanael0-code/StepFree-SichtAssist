@@ -3,36 +3,28 @@ const BACKEND_URL = "https://sichtassist-backend.onrender.com/api/analyze";
 const video = document.getElementById('cameraFeed');
 const statusBox = document.getElementById('appStatus');
 let isAnalyzing = false;
+let isStarted = false; // Verhindert mehrfaches Starten
 
-// 1. SPRACHAUSGABE (TTS) - Für iOS/Safari optimiert
+// 1. SPRACHAUSGABE (TTS)
 function speak(text, callback) {
-    // Falls noch Sprache läuft, abbrechen
     window.speechSynthesis.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'de-DE';
-    utterance.rate = 1.0;
-
-    utterance.onend = () => { if (callback) callback(); };
-    utterance.onerror = (e) => { 
-        console.error("TTS Fehler:", e); 
-        if (callback) callback(); 
-    };
-
-    statusBox.textContent = text;
-
-    // Workaround für iOS: Kurze Verzögerung nach cancel() einbauen
+    
+    // Kleiner Buffer für iOS, damit cancel() sauber durchläuft
     setTimeout(() => {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'de-DE';
+        utterance.rate = 1.0;
+        
+        utterance.onend = () => { if (callback) callback(); };
+        utterance.onerror = (e) => { 
+            console.error("TTS Fehler:", e); 
+            if (callback) callback(); 
+        };
+        
+        statusBox.textContent = text;
         window.speechSynthesis.speak(utterance);
     }, 50);
 }
-
-// Erster Klick schaltet Audio & Kamera auf dem iPad/iPhone frei
-document.body.addEventListener('click', () => {
-    // Dummy-Audio-Trigger schaltet iOS Audio-Session frei
-    window.speechSynthesis.speak(new SpeechSynthesisUtterance(''));
-    init();
-}, { once: true });
 
 // 2. SPRACHERKENNUNG (STT)
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -48,19 +40,21 @@ if (SpeechRecognition) {
         handleCommand(command);
     };
 
-    recognition.onerror = () => setTimeout(startListening, 1000);
+    recognition.onerror = () => {
+        if (isStarted) setTimeout(startListening, 1000);
+    };
     recognition.onend = () => {
-        if (!window.speechSynthesis.speaking && !isAnalyzing) startListening();
+        if (isStarted && !window.speechSynthesis.speaking && !isAnalyzing) startListening();
     };
 }
 
 function startListening() {
-    if (recognition && !isAnalyzing) {
+    if (recognition && !isAnalyzing && isStarted) {
         try { recognition.start(); } catch (e) {}
     }
 }
 
-// 3. BEFEHLE VERARBEITEN (Neue 4 Modi)
+// 3. BEFEHLE VERARBEITEN
 function handleCommand(command) {
     if (command.includes('text') || command.includes('lesen')) triggerAnalysis('text');
     else if (command.includes('farbe')) triggerAnalysis('color');
@@ -69,7 +63,7 @@ function handleCommand(command) {
     else speak("Nicht verstanden. Bitte sage Text, Farbe, Objekt oder Geld.", () => startListening());
 }
 
-// 4. BILD CAPTUREN & OPTIMIERT SKALIEREN / KOMPRIMIEREN
+// 4. BILD CAPTUREN
 function captureImageBase64() {
     const canvas = document.createElement('canvas');
     const maxWidth = 1024;
@@ -84,7 +78,7 @@ function captureImageBase64() {
     return canvas.toDataURL('image/jpeg', 0.7);
 }
 
-// 5. ANFRAGE AN DEIN RENDER-BACKEND SCHICKEN
+// 5. BACKEND ANFRAGE
 async function triggerAnalysis(mode) {
     if (isAnalyzing) return;
     isAnalyzing = true;
@@ -108,7 +102,6 @@ async function triggerAnalysis(mode) {
             });
         } else {
             const errorMsg = data.details || data.error || "Fehler bei der Bildanalyse.";
-            console.error("API Fehler Details:", errorMsg);
             speak(errorMsg, () => {
                 isAnalyzing = false;
                 startListening();
@@ -116,7 +109,6 @@ async function triggerAnalysis(mode) {
         }
 
     } catch (err) {
-        console.error("Netzwerkfehler:", err);
         speak("Verbindungsfehler zum Backend.", () => {
             isAnalyzing = false;
             startListening();
@@ -124,40 +116,36 @@ async function triggerAnalysis(mode) {
     }
 }
 
-// 6. KAMERA STARTEN
+// 6. INITIALISIERUNG / AUTOSTART
 async function init() {
+    if (isStarted) return;
+    isStarted = true;
+
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        // 1. Kamera starten (Facing environment -> Rückkamera)
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: 'environment' } 
+        });
         video.srcObject = stream;
-        speak("StepFree SichtAssist bereit. Sage einen Befehl wie Text, Farbe, Objekt oder Geld.", () => startListening());
+        
+        // 2. Direkt sprechen! (Da Berechtigung auf der Domain schon erteilt ist)
+        speak("StepFree SichtAssist bereit. Sage einen Befehl wie Text, Farbe, Objekt oder Geld.", () => {
+            startListening();
+        });
     } catch (err) {
-        speak("Kamera-Zugriff verweigert.");
+        // Falls die Kamera blockiert wird:
+        console.error("Kamerafehler:", err);
+        speak("Kamera-Zugriff verweigert. Bitte tippe einmal auf den Bildschirm, um zu starten.");
+        isStarted = false; // Ermöglicht manuelles Starten nach Klick
     }
 }
 
-// Event Listener für Knöpfe (Text, Farbe, Objekt, Geld)
-document.getElementById('btnText').addEventListener('click', () => triggerAnalysis('text'));
-document.getElementById('btnColor').addEventListener('click', () => triggerAnalysis('color'));
-document.getElementById('btnObject').addEventListener('click', () => triggerAnalysis('object'));
-document.getElementById('btnCurrency').addEventListener('click', () => triggerAnalysis('currency'));
+// --- AUTOSTART AUSLÖSEN ---
 
-document.body.addEventListener('click', () => { init(); }, { once: true });  
-
-// Für Screenreader & Sehbehinderte: Erster Touch irgendwo auf dem Display startet die App
-function handleFirstInteraction() {
-    // Schaltet Audio-Session auf iOS/Android frei
-    const startUtterance = new SpeechSynthesisUtterance("Starten");
-    startUtterance.lang = "de-DE";
-    window.speechSynthesis.speak(startUtterance);
-
-    // Startet Kamera & Spracherkennung
+// Startet, sobald das HTML-Gerüst geladen ist
+window.addEventListener('DOMContentLoaded', () => {
     init();
+});
 
-    // Event-Listener entfernen, damit er nur 1x ausführt
-    window.removeEventListener('touchstart', handleFirstInteraction);
-    window.removeEventListener('click', handleFirstInteraction);
-}
-
-// Reagiert sowohl auf Berührung (Touch) als auch auf Mausklick
-window.addEventListener('touchstart', handleFirstInteraction, { once: true });
-window.addEventListener('click', handleFirstInteraction, { once: true });
+// Fallback für iOS: Ein Klick irgendwo startet ebenfalls die App
+document.body.addEventListener('click', init);
