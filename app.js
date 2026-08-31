@@ -142,3 +142,22 @@ document.getElementById('btnObject').addEventListener('click', () => triggerAnal
 document.getElementById('btnCurrency').addEventListener('click', () => triggerAnalysis('currency'));
 
 document.body.addEventListener('click', () => { init(); }, { once: true });  
+
+// Für Screenreader & Sehbehinderte: Erster Touch irgendwo auf dem Display startet die App
+function handleFirstInteraction() {
+    // Schaltet Audio-Session auf iOS/Android frei
+    const startUtterance = new SpeechSynthesisUtterance("Starten");
+    startUtterance.lang = "de-DE";
+    window.speechSynthesis.speak(startUtterance);
+
+    // Startet Kamera & Spracherkennung
+    init();
+
+    // Event-Listener entfernen, damit er nur 1x ausführt
+    window.removeEventListener('touchstart', handleFirstInteraction);
+    window.removeEventListener('click', handleFirstInteraction);
+}
+
+// Reagiert sowohl auf Berührung (Touch) als auch auf Mausklick
+window.addEventListener('touchstart', handleFirstInteraction, { once: true });
+window.addEventListener('click', handleFirstInteraction, { once: true });
