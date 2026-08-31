@@ -170,8 +170,14 @@ function captureImageBase64() {
     return canvas.toDataURL('image/jpeg', 0.7);
 }
 
-// 7. BACKEND ANFRAGE
+// 7. BACKEND ANFRAGE (mit Offline-Erkennung)
 async function triggerAnalysis(mode) {
+    // 1. Netzwerkprüfung vor dem Senden
+    if (!navigator.onLine) {
+        speak("Keine Internetverbindung verfügbar. Bitte prüfe deine Verbindung.", () => startListening());
+        return;
+    }
+
     if (isAnalyzing) return;
     isAnalyzing = true;
     
@@ -210,6 +216,15 @@ async function triggerAnalysis(mode) {
         });
     }
 }
+
+// System-Listener für sofortige Rückmeldung bei Netzausfall
+window.addEventListener('offline', () => {
+    speak("Internetverbindung unterbrochen.");
+});
+
+window.addEventListener('online', () => {
+    speak("Internetverbindung wiederhergestellt.", () => startListening());
+});
 
 // 8. ABBRUCH-FUNKTION (Bringt Sprachausgabe sofort zum Schweigen)
 function stopAllOutput() {
