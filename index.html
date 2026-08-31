@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StepFree SichtAssist - Barrierefreie Assistenz</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <header role="banner">
+        <h1>StepFree SichtAssist</h1>
+        <p id="appStatus" class="status-box" aria-live="assertive">Tippe auf den Bildschirm, um die App zu starten.</p>
+    </header>
+
+    <main role="main">
+        <video id="cameraFeed" autoplay playsinline class="video-preview" aria-hidden="true"></video>
+
+        <div class="button-grid" role="region" aria-label="Steuerungsknöpfe">
+            <button id="btnText" class="btn btn-blue" aria-label="Text vorlesen">
+                <span>📄 Text</span>
+            </button>
+            <button id="btnColor" class="btn btn-white" aria-label="Farbe erkennen">
+                <span>🎨 Farbe</span>
+            </button>
+            <button id="btnObject" class="btn btn-yellow" aria-label="Objekt erkennen">
+                <span>🔍 Objekt</span>
+            </button>
+            <button id="btnCurrency" class="btn btn-green" aria-label="Geld erkennen">
+                <span>💶 Geld</span>
+            </button>
+        </div>
+    </main>
+
+    <footer role="contentinfo">
+        <p class="disclaimer">SichtAssist ist eine Orientierungs- und Lesehilfe im Alltag. Nicht zur Navigation im Straßenverkehr zugelassen.</p>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
