@@ -4,16 +4,35 @@ const video = document.getElementById('cameraFeed');
 const statusBox = document.getElementById('appStatus');
 let isAnalyzing = false;
 
-// 1. SPRACHAUSGABE (TTS)
+// 1. SPRACHAUSGABE (TTS) - Für iOS/Safari optimiert
 function speak(text, callback) {
+    // Falls noch Sprache läuft, abbrechen
     window.speechSynthesis.cancel();
+
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'de-DE';
     utterance.rate = 1.0;
+
     utterance.onend = () => { if (callback) callback(); };
+    utterance.onerror = (e) => { 
+        console.error("TTS Fehler:", e); 
+        if (callback) callback(); 
+    };
+
     statusBox.textContent = text;
-    window.speechSynthesis.speak(utterance);
+
+    // Workaround für iOS: Kurze Verzögerung nach cancel() einbauen
+    setTimeout(() => {
+        window.speechSynthesis.speak(utterance);
+    }, 50);
 }
+
+// Erster Klick schaltet Audio & Kamera auf dem iPad/iPhone frei
+document.body.addEventListener('click', () => {
+    // Dummy-Audio-Trigger schaltet iOS Audio-Session frei
+    window.speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+    init();
+}, { once: true });
 
 // 2. SPRACHERKENNUNG (STT)
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
