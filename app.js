@@ -247,7 +247,7 @@ async function init() {
         video.srcObject = stream;
         
       
-speak("StepFree SichtAssist bereit. Sage Text, Farbe, Objekt oder Geld. Für alle Optionen sage Hilfe.", () => {
+speak("SichtAssist bereit. Sage Text, Farbe, Objekt oder Geld. Für alle Optionen sage Hilfe.", () => {
     startListening();
 });
 
