@@ -108,6 +108,16 @@ function handleCommand(command) {
         return;
     }
 
+    // Hilfe-Befehl für neue Nutzer
+    if (command.includes('hilfe') || command.includes('befehle') || command.includes('optionen')) {
+        playBeep(600, 0.1);
+        speak(
+            "Mögliche Befehle sind: Text, Farbe, Objekt, Geld, Licht an, Licht aus, Wiederholen, oder Stopp zum Anhalten.", 
+            () => startListening()
+        );
+        return;
+    }
+
     // Wiederholen-Befehl
     if (command.includes('wiederholen') || command.includes('nochmal')) {
         playBeep(600, 0.1);
@@ -141,7 +151,7 @@ function handleCommand(command) {
     } else if (command.includes('geld') || command.includes('schein') || command.includes('münze')) {
         triggerAnalysis('currency');
     } else {
-        speak("Nicht verstanden. Sage Text, Farbe, Objekt, Geld, Licht an oder Stopp.", () => startListening());
+        speak("Nicht verstanden. Sage einen Modus wie Text oder Geld, oder sage Hilfe für alle Befehle.", () => startListening());
     }
 }
 
@@ -221,9 +231,11 @@ async function init() {
         });
         video.srcObject = stream;
         
-        speak("StepFree SichtAssist bereit. Sage einen Befehl wie Text, Farbe, Objekt oder Geld.", () => {
-            startListening();
-        });
+      
+speak("StepFree SichtAssist bereit. Sage Text, Farbe, Objekt oder Geld. Für alle Optionen sage Hilfe.", () => {
+    startListening();
+});
+
     } catch (err) {
         console.error("Kamerafehler:", err);
         speak("Kamera-Zugriff verweigert. Bitte tippe einmal auf den Bildschirm.");
