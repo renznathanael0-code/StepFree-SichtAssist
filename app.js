@@ -118,11 +118,22 @@ function handleCommand(command) {
         return;
     }
 
+    // Such-Befehl (z. B. "suche ipad" oder "finde schlüssel")
+    if (command.includes('suche') || command.includes('finde')) {
+        const target = command.replace(/suche|finde|nach/g, '').trim();
+        if (target) {
+            triggerAnalysis('search', target);
+        } else {
+            speak("Was soll ich für dich suchen? Sage zum Beispiel: Suche iPad.", () => startListening());
+        }
+        return;
+    }
+
     // Hilfe-Befehl für neue Nutzer
     if (command.includes('hilfe') || command.includes('befehle') || command.includes('optionen')) {
         playBeep(600, 0.1);
         speak(
-            "Mögliche Befehle sind: Text, Farbe, Objekt, Geld, Licht an, Licht aus, Wiederholen, Impressum, Datenschutz oder Stopp zum Anhalten.", 
+            "Mögliche Befehle sind: Text, Farbe, Objekt, Geld, Suche und der Gegenstand, Licht an, Licht aus, Wiederholen, Impressum, Datenschutz oder Stopp zum Anhalten.", 
             () => startListening()
         );
         return;
@@ -161,7 +172,7 @@ function handleCommand(command) {
     } else if (command.includes('geld') || command.includes('schein') || command.includes('münze')) {
         triggerAnalysis('currency');
     } else {
-        speak("Nicht verstanden. Sage einen Modus wie Text oder Geld, oder sage Hilfe für alle Befehle.", () => startListening());
+        speak("Nicht verstanden. Sage einen Modus wie Text, Geld oder Suche iPad, oder sage Hilfe für alle Befehle.", () => startListening());
     }
 }
 
@@ -180,8 +191,8 @@ function captureImageBase64() {
     return canvas.toDataURL('image/jpeg', 0.7);
 }
 
-// 7. BACKEND ANFRAGE (mit Offline-Erkennung)
-async function triggerAnalysis(mode) {
+// 7. BACKEND ANFRAGE (mit Offline-Erkennung und Such-Support)
+async function triggerAnalysis(mode, target = null) {
     // 1. Netzwerkprüfung vor dem Senden
     if (!navigator.onLine) {
         speak("Keine Internetverbindung verfügbar. Bitte prüfe deine Verbindung.", () => startListening());
@@ -192,7 +203,9 @@ async function triggerAnalysis(mode) {
     isAnalyzing = true;
     
     playBeep(880, 0.15); // Bestätigungston beim Start der Analyse
-    speak("Analysiere Bild, bitte warten...", null);
+    
+    const statusText = mode === 'search' ? `Suche nach ${target}...` : "Analysiere Bild, bitte warten...";
+    speak(statusText, null);
 
     try {
         const imageBase64 = captureImageBase64();
@@ -200,7 +213,7 @@ async function triggerAnalysis(mode) {
         const response = await fetch(BACKEND_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ imageBase64, mode })
+            body: JSON.stringify({ imageBase64, mode, target })
         });
 
         const data = await response.json();
@@ -256,7 +269,7 @@ async function init() {
         });
         video.srcObject = stream;
         
-        speak("SichtAssist bereit. Sage Text, Farbe, Objekt oder Geld. Für alle Optionen sage Hilfe.", () => {
+        speak("SichtAssist bereit. Sage Text, Farbe, Objekt, Geld oder Suche. Für alle Optionen sage Hilfe.", () => {
             startListening();
         });
 
