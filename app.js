@@ -8,7 +8,7 @@ let isWaitingForSearchTarget = false;
 let searchTimeoutTimer = null;
 let lastResult = "";
 
-// 1. AUDIO-BEEP
+// 1. AUDIO-BEEP (Erzeugt Pieptöne per Web Audio API)
 function playBeep(freq = 880, duration = 0.15) {
     try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -29,6 +29,11 @@ function playBeep(freq = 880, duration = 0.15) {
     } catch (e) {
         console.warn("AudioContext blockiert/nicht unterstützt");
     }
+}
+
+// Spezieller Ton für die Mikrofon-Aktivierung (kurzer hoher Doppel-Piep)
+function playMicActiveBeep() {
+    playBeep(1200, 0.08);
 }
 
 // 2. SPRACHAUSGABE (TTS)
@@ -106,7 +111,10 @@ if (SpeechRecognition) {
 
 function startListening() {
     if (recognition && !isAnalyzing && isStarted && !window.speechSynthesis.speaking) {
-        try { recognition.start(); } catch (e) {}
+        try { 
+            recognition.start(); 
+            playMicActiveBeep(); // Ton abspielen, wenn das Mikrofon zuhört
+        } catch (e) {}
     }
 }
 
@@ -150,13 +158,13 @@ function handleCommand(command) {
         } else {
             isWaitingForSearchTarget = true;
             
-            // Falls 8 Sekunden lang keine Antwort kommt, Modus zurücksetzen
+            // Falls 10 Sekunden lang keine Antwort kommt, Modus zurücksetzen
             searchTimeoutTimer = setTimeout(() => {
                 if (isWaitingForSearchTarget) {
                     isWaitingForSearchTarget = false;
                     speak("Kein Suchbegriff erkannt.", () => startListening());
                 }
-            }, 8000);
+            }, 10000);
 
             speak("Was soll ich für dich suchen?", () => {
                 startListening();
@@ -227,7 +235,7 @@ function captureImageBase64() {
     return canvas.toDataURL('image/jpeg', 0.7);
 }
 
-// 7. BACKEND ANFRAGE (mit AbortController / Timeout)
+// 7. BACKEND ANFRAGE (mit AbortController / 60s Timeout)
 async function triggerAnalysis(mode, target = null) {
     if (!navigator.onLine) {
         speak("Keine Internetverbindung verfügbar. Bitte prüfe deine Verbindung.", () => startListening());
@@ -242,9 +250,9 @@ async function triggerAnalysis(mode, target = null) {
     const statusText = mode === 'search' ? `Suche nach ${target}...` : "Analysiere Bild, bitte warten...";
     speak(statusText, null);
 
-    // Timeout einrichten: Bricht die Anfrage nach 12 Sekunden ab
+    // Timeout: Bricht die Anfrage nach 60000ms (1 Minute) ab
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     try {
         const imageBase64 = captureImageBase64();
@@ -278,7 +286,7 @@ async function triggerAnalysis(mode, target = null) {
         isAnalyzing = false;
 
         if (err.name === 'AbortError') {
-            speak("Die Analyse dauert zu lange. Bitte versuche es erneut.", () => startListening());
+            speak("Die Analyse hat das Zeitlimit von einer Minute überschritten. Bitte versuche es erneut.", () => startListening());
         } else {
             speak("Verbindungsfehler zum Backend.", () => startListening());
         }
