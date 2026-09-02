@@ -8,7 +8,7 @@ let isWaitingForSearchTarget = false;
 let searchTimeoutTimer = null;
 let lastResult = "";
 
-// 1. AUDIO-BEEP (Erzeugt Pieptöne per Web Audio API)
+// 1. AUDIO-BEEP
 function playBeep(freq = 880, duration = 0.15) {
     try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -31,7 +31,6 @@ function playBeep(freq = 880, duration = 0.15) {
     }
 }
 
-// Spezieller Ton für die Mikrofon-Aktivierung (kurzer hoher Doppel-Piep)
 function playMicActiveBeep() {
     playBeep(1200, 0.08);
 }
@@ -113,7 +112,7 @@ function startListening() {
     if (recognition && !isAnalyzing && isStarted && !window.speechSynthesis.speaking) {
         try { 
             recognition.start(); 
-            playMicActiveBeep(); // Ton abspielen, wenn das Mikrofon zuhört
+            playMicActiveBeep();
         } catch (e) {}
     }
 }
@@ -124,13 +123,24 @@ function stopListening() {
     }
 }
 
+// Hilfsfunktion: Bereinigt die Spracheingabe vom Such-Befehl
+function extractSearchTarget(command) {
+    return command
+        .replace(/\b(suche|finde|nach|das|die|den|dem|ein|eine|einen|meine|mein|meinen)\b/g, '')
+        .trim();
+}
+
 // 5. BEFEHLE VERARBEITEN
 function handleCommand(command) {
     // Falls auf die Nennung des Such-Gegenstands gewartet wird
     if (isWaitingForSearchTarget) {
         clearTimeout(searchTimeoutTimer);
         isWaitingForSearchTarget = false;
-        triggerAnalysis('search', command);
+        
+        const cleanTarget = extractSearchTarget(command);
+        const finalTarget = cleanTarget.length > 0 ? cleanTarget : command;
+        
+        triggerAnalysis('search', finalTarget);
         return;
     }
 
@@ -152,13 +162,12 @@ function handleCommand(command) {
 
     // Such-Befehl
     if (command.includes('suche') || command.includes('finde')) {
-        const target = command.replace(/suche|finde|nach/g, '').trim();
+        const target = extractSearchTarget(command);
         if (target.length > 0) {
             triggerAnalysis('search', target);
         } else {
             isWaitingForSearchTarget = true;
             
-            // Falls 10 Sekunden lang keine Antwort kommt, Modus zurücksetzen
             searchTimeoutTimer = setTimeout(() => {
                 if (isWaitingForSearchTarget) {
                     isWaitingForSearchTarget = false;
@@ -235,7 +244,7 @@ function captureImageBase64() {
     return canvas.toDataURL('image/jpeg', 0.7);
 }
 
-// 7. BACKEND ANFRAGE (mit AbortController / 60s Timeout)
+// 7. BACKEND ANFRAGE (60 Sekunden Timeout)
 async function triggerAnalysis(mode, target = null) {
     if (!navigator.onLine) {
         speak("Keine Internetverbindung verfügbar. Bitte prüfe deine Verbindung.", () => startListening());
@@ -250,7 +259,6 @@ async function triggerAnalysis(mode, target = null) {
     const statusText = mode === 'search' ? `Suche nach ${target}...` : "Analysiere Bild, bitte warten...";
     speak(statusText, null);
 
-    // Timeout: Bricht die Anfrage nach 60000ms (1 Minute) ab
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 60000);
 
