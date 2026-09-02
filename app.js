@@ -124,7 +124,10 @@ function handleCommand(command) {
         if (target) {
             triggerAnalysis('search', target);
         } else {
-            speak("Was soll ich für dich suchen? Sage zum Beispiel: Suche iPad.", () => startListening());
+            // WICHTIG: Spracherkennung startet exakt über den Callback NACH der Sprachausgabe
+            speak("Was soll ich für dich suchen?", () => {
+                startListening();
+            });
         }
         return;
     }
