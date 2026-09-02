@@ -30,25 +30,31 @@ function playBeep(freq = 880, duration = 0.15) {
     }
 }
 
-// 2. SPRACHAUSGABE (TTS) MIT MIKROFON-SPERRE
+// 2. SPRACHAUSGABE (TTS) MIT HARTER MIKROFON-SPERRE
 function speak(text, callback) {
-    stopListening(); // Mikrofon sofort schließen, damit sich die App nicht selbst hört
+    // 1. Mikrofon SOFORT und hart abschalten
+    stopListening();
     window.speechSynthesis.cancel();
     
+    // 2. Kurze Pause vor Sprachausgabe, damit das System Zeit hat das Mikrofon zu schließen
     setTimeout(() => {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'de-DE';
         utterance.rate = 1.0;
         
-        utterance.onend = () => { if (callback) callback(); };
+        utterance.onend = () => { 
+            // Nach dem Ende nochmals 400ms Puffer lassen, bevor das Mikrofon angeht
+            if (callback) setTimeout(callback, 400); 
+        };
+        
         utterance.onerror = (e) => { 
             console.error("TTS Fehler:", e); 
-            if (callback) callback(); 
+            if (callback) setTimeout(callback, 400); 
         };
         
         statusBox.textContent = text;
         window.speechSynthesis.speak(utterance);
-    }, 100);
+    }, 150);
 }
 
 // 3. TASCHENLAMPE STEUERN
@@ -84,6 +90,8 @@ if (SpeechRecognition) {
     recognition.continuous = false;
 
     recognition.onresult = (event) => {
+        // WICHTIG: Sofort stoppen sobald ein Ergebnis da ist, damit keine weiteren Wörter mitgeschnitten werden!
+        stopListening();
         const command = event.results[0][0].transcript.toLowerCase();
         handleCommand(command);
     };
@@ -91,8 +99,12 @@ if (SpeechRecognition) {
     recognition.onerror = () => {
         if (isStarted && !window.speechSynthesis.speaking) setTimeout(startListening, 1000);
     };
+    
     recognition.onend = () => {
-        if (isStarted && !window.speechSynthesis.speaking && !isAnalyzing) startListening();
+        if (isStarted && !window.speechSynthesis.speaking && !isAnalyzing) {
+            // Sicherstellen, dass nicht versehentlich direkt neu gestartet wird
+            setTimeout(startListening, 300);
+        }
     };
 }
 
@@ -104,7 +116,7 @@ function startListening() {
 
 function stopListening() {
     if (recognition) {
-        try { recognition.stop(); } catch (e) {}
+        try { recognition.abort(); } catch (e) {} // abort() beendet die Erfassung im Gegensatz zu stop() SOFORT!
     }
 }
 
@@ -140,6 +152,7 @@ function handleCommand(command) {
             triggerAnalysis('search', target);
         } else {
             isWaitingForSearchTarget = true;
+            // Sprachausgabe abwarten, erst danach hört die Spracherkennung wieder zu!
             speak("Was soll ich für dich suchen?", () => {
                 startListening();
             });
@@ -269,6 +282,7 @@ window.addEventListener('online', () => {
 // 8. ABBRUCH-FUNKTION
 function stopAllOutput() {
     isWaitingForSearchTarget = false;
+    stopListening();
     window.speechSynthesis.cancel();
     isAnalyzing = false;
     playBeep(440, 0.2);
