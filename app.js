@@ -4,9 +4,10 @@ const video = document.getElementById('cameraFeed');
 const statusBox = document.getElementById('appStatus');
 let isAnalyzing = false;
 let isStarted = false;
-let lastResult = ""; // Speichert das letzte Analyse-Ergebnis
+let isWaitingForSearchTarget = false; // Zustand für zweistufige Suche
+let lastResult = "";
 
-// 1. AUDIO-BEEP (Erzeugt Piepton per Web Audio API)
+// 1. AUDIO-BEEP
 function playBeep(freq = 880, duration = 0.15) {
     try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -29,8 +30,9 @@ function playBeep(freq = 880, duration = 0.15) {
     }
 }
 
-// 2. SPRACHAUSGABE (TTS)
+// 2. SPRACHAUSGABE (TTS) MIT MIKROFON-SPERRE
 function speak(text, callback) {
+    stopListening(); // Mikrofon sofort schließen, damit sich die App nicht selbst hört
     window.speechSynthesis.cancel();
     
     setTimeout(() => {
@@ -46,10 +48,10 @@ function speak(text, callback) {
         
         statusBox.textContent = text;
         window.speechSynthesis.speak(utterance);
-    }, 50);
+    }, 100);
 }
 
-// 3. TASCHENLAMPE / BLITZ STEUERN
+// 3. TASCHENLAMPE STEUERN
 function toggleTorch(enable) {
     if (video.srcObject) {
         const tracks = video.srcObject.getVideoTracks();
@@ -72,7 +74,7 @@ function toggleTorch(enable) {
     }
 }
 
-// 4. SPRACHERKENNUNG (STT)
+// 4. SPRACHERKENNUNG (STT) STEUERUNG
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition;
 
@@ -87,7 +89,7 @@ if (SpeechRecognition) {
     };
 
     recognition.onerror = () => {
-        if (isStarted) setTimeout(startListening, 1000);
+        if (isStarted && !window.speechSynthesis.speaking) setTimeout(startListening, 1000);
     };
     recognition.onend = () => {
         if (isStarted && !window.speechSynthesis.speaking && !isAnalyzing) startListening();
@@ -95,20 +97,33 @@ if (SpeechRecognition) {
 }
 
 function startListening() {
-    if (recognition && !isAnalyzing && isStarted) {
+    if (recognition && !isAnalyzing && isStarted && !window.speechSynthesis.speaking) {
         try { recognition.start(); } catch (e) {}
+    }
+}
+
+function stopListening() {
+    if (recognition) {
+        try { recognition.stop(); } catch (e) {}
     }
 }
 
 // 5. BEFEHLE VERARBEITEN
 function handleCommand(command) {
+    // Falls die App gerade auf die Nennung des Such-Gegenstands wartet
+    if (isWaitingForSearchTarget) {
+        isWaitingForSearchTarget = false;
+        triggerAnalysis('search', command);
+        return;
+    }
+
     // Stopp-Befehl
     if (command.includes('stopp') || command.includes('halt') || command.includes('ruhe')) {
         stopAllOutput();
         return;
     }
 
-    // Rechtliche Seiten per Sprache aufrufen
+    // Rechtliche Seiten per Sprache
     if (command.includes('impressum')) {
         speak("Öffne Impressum.", () => { window.location.href = 'impressum.html'; });
         return;
@@ -118,13 +133,13 @@ function handleCommand(command) {
         return;
     }
 
-    // Such-Befehl (z. B. "suche ipad" oder "finde schlüssel")
+    // Such-Befehl
     if (command.includes('suche') || command.includes('finde')) {
         const target = command.replace(/suche|finde|nach/g, '').trim();
-        if (target) {
+        if (target.length > 0) {
             triggerAnalysis('search', target);
         } else {
-            // WICHTIG: Spracherkennung startet exakt über den Callback NACH der Sprachausgabe
+            isWaitingForSearchTarget = true;
             speak("Was soll ich für dich suchen?", () => {
                 startListening();
             });
@@ -132,11 +147,11 @@ function handleCommand(command) {
         return;
     }
 
-    // Hilfe-Befehl für neue Nutzer
+    // Hilfe-Befehl
     if (command.includes('hilfe') || command.includes('befehle') || command.includes('optionen')) {
         playBeep(600, 0.1);
         speak(
-            "Mögliche Befehle sind: Text, Farbe, Objekt, Geld, Suche und der Gegenstand, Licht an, Licht aus, Wiederholen, Impressum, Datenschutz oder Stopp zum Anhalten.", 
+            "Mögliche Befehle sind: Text, Farbe, Objekt, Geld, Suche, Licht an, Licht aus, Wiederholen, Impressum, Datenschutz oder Stopp.", 
             () => startListening()
         );
         return;
@@ -175,7 +190,7 @@ function handleCommand(command) {
     } else if (command.includes('geld') || command.includes('schein') || command.includes('münze')) {
         triggerAnalysis('currency');
     } else {
-        speak("Nicht verstanden. Sage einen Modus wie Text, Geld oder Suche iPad, oder sage Hilfe für alle Befehle.", () => startListening());
+        speak("Nicht verstanden. Sage einen Modus wie Text, Geld oder Suche, oder sage Hilfe für alle Befehle.", () => startListening());
     }
 }
 
@@ -194,9 +209,8 @@ function captureImageBase64() {
     return canvas.toDataURL('image/jpeg', 0.7);
 }
 
-// 7. BACKEND ANFRAGE (mit Offline-Erkennung und Such-Support)
+// 7. BACKEND ANFRAGE
 async function triggerAnalysis(mode, target = null) {
-    // 1. Netzwerkprüfung vor dem Senden
     if (!navigator.onLine) {
         speak("Keine Internetverbindung verfügbar. Bitte prüfe deine Verbindung.", () => startListening());
         return;
@@ -205,7 +219,7 @@ async function triggerAnalysis(mode, target = null) {
     if (isAnalyzing) return;
     isAnalyzing = true;
     
-    playBeep(880, 0.15); // Bestätigungston beim Start der Analyse
+    playBeep(880, 0.15);
     
     const statusText = mode === 'search' ? `Suche nach ${target}...` : "Analysiere Bild, bitte warten...";
     speak(statusText, null);
@@ -222,7 +236,7 @@ async function triggerAnalysis(mode, target = null) {
         const data = await response.json();
 
         if (response.ok && data.result) {
-            lastResult = data.result; // Für "wiederholen" speichern
+            lastResult = data.result;
             speak(data.result, () => {
                 isAnalyzing = false;
                 startListening();
@@ -243,7 +257,7 @@ async function triggerAnalysis(mode, target = null) {
     }
 }
 
-// System-Listener für sofortige Rückmeldung bei Netzausfall
+// System-Listener
 window.addEventListener('offline', () => {
     speak("Internetverbindung unterbrochen.");
 });
@@ -252,8 +266,9 @@ window.addEventListener('online', () => {
     speak("Internetverbindung wiederhergestellt.", () => startListening());
 });
 
-// 8. ABBRUCH-FUNKTION (Bringt Sprachausgabe sofort zum Schweigen)
+// 8. ABBRUCH-FUNKTION
 function stopAllOutput() {
+    isWaitingForSearchTarget = false;
     window.speechSynthesis.cancel();
     isAnalyzing = false;
     playBeep(440, 0.2);
@@ -261,7 +276,7 @@ function stopAllOutput() {
     setTimeout(startListening, 500);
 }
 
-// 9. INITIALISIERUNG / AUTOSTART
+// 9. INITIALISIERUNG
 async function init() {
     if (isStarted) return;
     isStarted = true;
@@ -283,15 +298,12 @@ async function init() {
     }
 }
 
-// --- EVENT LISTENER ---
-
+// EVENT LISTENER
 window.addEventListener('DOMContentLoaded', () => {
     init();
 });
 
-// Tippen auf den Bildschirm bricht eine laufende Ansage sofort ab (oder startet die App)
 document.body.addEventListener('click', (e) => {
-    // Klicks auf Links im Footer ignorieren, damit sie normal aufgerufen werden können
     if (e.target.closest('.legal-footer')) return;
 
     if (!isStarted) {
@@ -301,7 +313,6 @@ document.body.addEventListener('click', (e) => {
     }
 });
 
-// Button-EventListener (verhindern Event-Bubbling)
 document.getElementById('btnText').addEventListener('click', (e) => { e.stopPropagation(); triggerAnalysis('text'); });
 document.getElementById('btnColor').addEventListener('click', (e) => { e.stopPropagation(); triggerAnalysis('color'); });
 document.getElementById('btnObject').addEventListener('click', (e) => { e.stopPropagation(); triggerAnalysis('object'); });
