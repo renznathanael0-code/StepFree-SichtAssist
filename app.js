@@ -4,7 +4,8 @@ const video = document.getElementById('cameraFeed');
 const statusBox = document.getElementById('appStatus');
 let isAnalyzing = false;
 let isStarted = false;
-let isWaitingForSearchTarget = false; // Zustand für zweistufige Suche
+let isWaitingForSearchTarget = false;
+let searchTimeoutTimer = null;
 let lastResult = "";
 
 // 1. AUDIO-BEEP
@@ -30,20 +31,17 @@ function playBeep(freq = 880, duration = 0.15) {
     }
 }
 
-// 2. SPRACHAUSGABE (TTS) MIT HARTER MIKROFON-SPERRE
+// 2. SPRACHAUSGABE (TTS)
 function speak(text, callback) {
-    // 1. Mikrofon SOFORT und hart abschalten
     stopListening();
     window.speechSynthesis.cancel();
     
-    // 2. Kurze Pause vor Sprachausgabe, damit das System Zeit hat das Mikrofon zu schließen
     setTimeout(() => {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'de-DE';
         utterance.rate = 1.0;
         
         utterance.onend = () => { 
-            // Nach dem Ende nochmals 400ms Puffer lassen, bevor das Mikrofon angeht
             if (callback) setTimeout(callback, 400); 
         };
         
@@ -90,7 +88,6 @@ if (SpeechRecognition) {
     recognition.continuous = false;
 
     recognition.onresult = (event) => {
-        // WICHTIG: Sofort stoppen sobald ein Ergebnis da ist, damit keine weiteren Wörter mitgeschnitten werden!
         stopListening();
         const command = event.results[0][0].transcript.toLowerCase();
         handleCommand(command);
@@ -102,7 +99,6 @@ if (SpeechRecognition) {
     
     recognition.onend = () => {
         if (isStarted && !window.speechSynthesis.speaking && !isAnalyzing) {
-            // Sicherstellen, dass nicht versehentlich direkt neu gestartet wird
             setTimeout(startListening, 300);
         }
     };
@@ -116,14 +112,15 @@ function startListening() {
 
 function stopListening() {
     if (recognition) {
-        try { recognition.abort(); } catch (e) {} // abort() beendet die Erfassung im Gegensatz zu stop() SOFORT!
+        try { recognition.abort(); } catch (e) {}
     }
 }
 
 // 5. BEFEHLE VERARBEITEN
 function handleCommand(command) {
-    // Falls die App gerade auf die Nennung des Such-Gegenstands wartet
+    // Falls auf die Nennung des Such-Gegenstands gewartet wird
     if (isWaitingForSearchTarget) {
+        clearTimeout(searchTimeoutTimer);
         isWaitingForSearchTarget = false;
         triggerAnalysis('search', command);
         return;
@@ -135,7 +132,7 @@ function handleCommand(command) {
         return;
     }
 
-    // Rechtliche Seiten per Sprache
+    // Rechtliche Seiten
     if (command.includes('impressum')) {
         speak("Öffne Impressum.", () => { window.location.href = 'impressum.html'; });
         return;
@@ -152,7 +149,15 @@ function handleCommand(command) {
             triggerAnalysis('search', target);
         } else {
             isWaitingForSearchTarget = true;
-            // Sprachausgabe abwarten, erst danach hört die Spracherkennung wieder zu!
+            
+            // Falls 8 Sekunden lang keine Antwort kommt, Modus zurücksetzen
+            searchTimeoutTimer = setTimeout(() => {
+                if (isWaitingForSearchTarget) {
+                    isWaitingForSearchTarget = false;
+                    speak("Kein Suchbegriff erkannt.", () => startListening());
+                }
+            }, 8000);
+
             speak("Was soll ich für dich suchen?", () => {
                 startListening();
             });
@@ -222,7 +227,7 @@ function captureImageBase64() {
     return canvas.toDataURL('image/jpeg', 0.7);
 }
 
-// 7. BACKEND ANFRAGE
+// 7. BACKEND ANFRAGE (mit AbortController / Timeout)
 async function triggerAnalysis(mode, target = null) {
     if (!navigator.onLine) {
         speak("Keine Internetverbindung verfügbar. Bitte prüfe deine Verbindung.", () => startListening());
@@ -237,15 +242,21 @@ async function triggerAnalysis(mode, target = null) {
     const statusText = mode === 'search' ? `Suche nach ${target}...` : "Analysiere Bild, bitte warten...";
     speak(statusText, null);
 
+    // Timeout einrichten: Bricht die Anfrage nach 12 Sekunden ab
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+
     try {
         const imageBase64 = captureImageBase64();
 
         const response = await fetch(BACKEND_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
             body: JSON.stringify({ imageBase64, mode, target })
         });
 
+        clearTimeout(timeoutId);
         const data = await response.json();
 
         if (response.ok && data.result) {
@@ -263,10 +274,14 @@ async function triggerAnalysis(mode, target = null) {
         }
 
     } catch (err) {
-        speak("Verbindungsfehler zum Backend.", () => {
-            isAnalyzing = false;
-            startListening();
-        });
+        clearTimeout(timeoutId);
+        isAnalyzing = false;
+
+        if (err.name === 'AbortError') {
+            speak("Die Analyse dauert zu lange. Bitte versuche es erneut.", () => startListening());
+        } else {
+            speak("Verbindungsfehler zum Backend.", () => startListening());
+        }
     }
 }
 
@@ -281,6 +296,7 @@ window.addEventListener('online', () => {
 
 // 8. ABBRUCH-FUNKTION
 function stopAllOutput() {
+    clearTimeout(searchTimeoutTimer);
     isWaitingForSearchTarget = false;
     stopListening();
     window.speechSynthesis.cancel();
