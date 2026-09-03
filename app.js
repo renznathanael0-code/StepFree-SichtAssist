@@ -1,6 +1,5 @@
 const BACKEND_URL = "https://sichtassist-backend.onrender.com/api/analyze";
 
-
 const video = document.getElementById('cameraFeed');
 const statusBox = document.getElementById('appStatus');
 let isAnalyzing = false;
@@ -60,27 +59,24 @@ function speak(text, callback) {
     }, 150);
 }
 
-// 3. TASCHENLAMPE STEUERN
-function toggleTorch(enable) {
+// 3. TASCHENLAMPE SCHALTEN (Hilfsfunktion)
+async function setTorch(enable) {
     if (video.srcObject) {
         const tracks = video.srcObject.getVideoTracks();
         if (tracks.length > 0) {
             const track = tracks[0];
             const capabilities = track.getCapabilities ? track.getCapabilities() : {};
-
             if (capabilities.torch) {
-                track.applyConstraints({
-                    advanced: [{ torch: enable }]
-                }).then(() => {
-                    speak(enable ? "Licht eingeschaltet" : "Licht ausgeschaltet", () => startListening());
-                }).catch(() => {
-                    speak("Licht konnte nicht geschaltet werden.", () => startListening());
-                });
-            } else {
-                speak("Taschenlampe auf diesem Gerät nicht verfügbar.", () => startListening());
+                try {
+                    await track.applyConstraints({ advanced: [{ torch: enable }] });
+                    return true;
+                } catch (e) {
+                    console.warn("Taschenlampe konnte nicht geschaltet werden:", e);
+                }
             }
         }
     }
+    return false;
 }
 
 // 4. SPRACHERKENNUNG (STT) STEUERUNG
@@ -187,7 +183,7 @@ function handleCommand(command) {
     if (command.includes('hilfe') || command.includes('befehle') || command.includes('optionen')) {
         playBeep(600, 0.1);
         speak(
-            "Mögliche Befehle sind: Text, Farbe, Objekt, Geld, Suche, Licht an, Licht aus, Wiederholen, Impressum, Datenschutz oder Stopp.", 
+            "Mögliche Befehle sind: Text, Farbe, Objekt, Geld, Suche, Wiederholen, Impressum, Datenschutz oder Stopp.", 
             () => startListening()
         );
         return;
@@ -201,18 +197,6 @@ function handleCommand(command) {
         } else {
             speak("Keine vorherige Analyse vorhanden.", () => startListening());
         }
-        return;
-    }
-
-    // Licht-Befehle
-    if (command.includes('licht an') || command.includes('blitz an')) {
-        playBeep(1000, 0.1);
-        toggleTorch(true);
-        return;
-    }
-    if (command.includes('licht aus') || command.includes('blitz aus')) {
-        playBeep(400, 0.1);
-        toggleTorch(false);
         return;
     }
 
@@ -245,20 +229,26 @@ function captureImageBase64() {
     return canvas.toDataURL('image/jpeg', 0.7);
 }
 
-// 7. BACKEND ANFRAGE (60 Sekunden Timeout)
-async function triggerAnalysis(mode, target = null) {
+// 7. BACKEND ANFRAGE (mit Licht-Fallback)
+async function triggerAnalysis(mode, target = null, isRetryWithTorch = false) {
     if (!navigator.onLine) {
         speak("Keine Internetverbindung verfügbar. Bitte prüfe deine Verbindung.", () => startListening());
         return;
     }
 
-    if (isAnalyzing) return;
+    if (isAnalyzing && !isRetryWithTorch) return;
     isAnalyzing = true;
     
     playBeep(880, 0.15);
     
-    const statusText = mode === 'search' ? `Suche nach ${target}...` : "Analysiere Bild, bitte warten...";
-    speak(statusText, null);
+    if (isRetryWithTorch) {
+        speak("Bild war zu dunkel. Schalte Licht ein und versuche es erneut...", null);
+        await setTorch(true);
+        await new Promise(resolve => setTimeout(resolve, 400));
+    } else {
+        const statusText = mode === 'search' ? `Suche nach ${target}...` : "Analysiere Bild, bitte warten...";
+        speak(statusText, null);
+    }
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 60000);
@@ -276,7 +266,17 @@ async function triggerAnalysis(mode, target = null) {
         clearTimeout(timeoutId);
         const data = await response.json();
 
+        // Licht immer sofort wieder ausschalten nach dem Zweitversuch
+        if (isRetryWithTorch) {
+            await setTorch(false);
+        }
+
         if (response.ok && data.result) {
+            // KI signalisiert Dunkelheit -> 2. Versuch automatisch mit Blitz ausführen
+            if (data.result.includes('[RETRY_WITH_TORCH]') && !isRetryWithTorch) {
+                return triggerAnalysis(mode, target, true);
+            }
+
             lastResult = data.result;
             speak(data.result, () => {
                 isAnalyzing = false;
@@ -292,6 +292,7 @@ async function triggerAnalysis(mode, target = null) {
 
     } catch (err) {
         clearTimeout(timeoutId);
+        if (isRetryWithTorch) await setTorch(false);
         isAnalyzing = false;
 
         if (err.name === 'AbortError') {
@@ -317,6 +318,7 @@ function stopAllOutput() {
     isWaitingForSearchTarget = false;
     stopListening();
     window.speechSynthesis.cancel();
+    setTorch(false); // Sicherheitshalber Licht ausschalten
     isAnalyzing = false;
     playBeep(440, 0.2);
     statusBox.textContent = "Angehalten.";
