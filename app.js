@@ -1,5 +1,6 @@
 const BACKEND_URL = "https://sichtassist-backend.onrender.com/api/analyze";
 
+
 const video = document.getElementById('cameraFeed');
 const statusBox = document.getElementById('appStatus');
 let isAnalyzing = false;
