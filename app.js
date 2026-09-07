@@ -90,6 +90,8 @@ async function setTorch(enable) {
     return false;
 }
 
+let isMicActive = false; // Verhindert doppelte Töne
+
 // 4. SPRACHERKENNUNG (STT) STEUERUNG
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition;
@@ -97,20 +99,29 @@ let recognition;
 if (SpeechRecognition) {
     recognition = new SpeechRecognition();
     recognition.lang = 'de-DE';
-    recognition.continuous = false;
+    recognition.continuous = true; // Hält das Mikrofon dauerhaft offen ohne ständiges Neustarten
 
     recognition.onresult = (event) => {
+        const lastIndex = event.results.length - 1;
+        const command = event.results[lastIndex][0].transcript.toLowerCase();
+        
+        // Mikrofon kurz pausieren während der Verarbeitung
         stopListening(false);
-        const command = event.results[0][0].transcript.toLowerCase();
         handleCommand(command);
     };
 
-    recognition.onerror = () => {
-        if (isStarted && !window.speechSynthesis.speaking) setTimeout(startListening, 1000);
+    recognition.onerror = (event) => {
+        if (event.error !== 'no-speech' && isStarted && !window.speechSynthesis.speaking) {
+            setTimeout(startListening, 1000);
+        }
     };
     
     recognition.onend = () => {
-        // Kein automatisches Neustarten mehr im Dauer-Takt!
+        isMicActive = false;
+        // Startet nur neu, wenn der 20s-Timer noch läuft und keine Sprachausgabe aktiv ist
+        if (isStarted && micInactivityTimer && !window.speechSynthesis.speaking && !isAnalyzing) {
+            try { recognition.start(); } catch (e) {}
+        }
     };
 }
 
@@ -118,34 +129,46 @@ function startListening() {
     if (recognition && !isAnalyzing && isStarted && !window.speechSynthesis.speaking) {
         try { 
             recognition.start(); 
-            playMicActiveBeep();
+            if (!isMicActive) {
+                playMicActiveBeep(); // Ton ertönt nur 1x beim echten Start!
+                isMicActive = true;
+            }
             resetMicTimeout(); 
-        } catch (e) {
-            // Bereits aktiv
-        }
+        } catch (e) {}
     }
 }
 
 function stopListening(playDeactiveSound = false) {
     clearTimeout(micInactivityTimer);
     micInactivityTimer = null;
+    
     if (recognition) {
         try { recognition.stop(); } catch (e) {}
     }
-    if (playDeactiveSound) {
+    
+    if (playDeactiveSound && isMicActive) {
         playMicDeactiveBeep();
     }
+    isMicActive = false;
 }
 
+// 20-Sekunden Inaktivitäts-Timer
 function resetMicTimeout() {
     clearTimeout(micInactivityTimer);
     micInactivityTimer = setTimeout(() => {
         micInactivityTimer = null;
+        
+        // Stoppt das Mikrofon leise, damit die Ansage nicht gestört wird
         if (recognition) {
             try { recognition.stop(); } catch (e) {}
         }
+        
+        // Spricht den Hinweis und spielt danach den Abschalt-Ton
         speak("Mikrofon aus. Tippe auf den Bildschirm, um mich wieder zu aktivieren.", () => {
-            playMicDeactiveBeep();
+            if (isMicActive) {
+                playMicDeactiveBeep();
+                isMicActive = false;
+            }
         });
     }, 20000);
 }
