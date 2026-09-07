@@ -6,6 +6,7 @@ let isAnalyzing = false;
 let isStarted = false;
 let isWaitingForSearchTarget = false;
 let searchTimeoutTimer = null;
+let micInactivityTimer = null; // Timer für 20s Mikrofon-Timeout
 let lastResult = "";
 
 // 1. AUDIO-BEEP
@@ -32,12 +33,16 @@ function playBeep(freq = 880, duration = 0.15) {
 }
 
 function playMicActiveBeep() {
-    playBeep(1200, 0.08);
+    playBeep(1200, 0.08); // Hoher Ton für Mikrofon AN
+}
+
+function playMicDeactiveBeep() {
+    playBeep(440, 0.12); // Tieferer Ton für Mikrofon AUS
 }
 
 // 2. SPRACHAUSGABE (TTS)
 function speak(text, callback) {
-    stopListening();
+    stopListening(false);
     window.speechSynthesis.cancel();
     
     setTimeout(() => {
@@ -89,7 +94,7 @@ if (SpeechRecognition) {
     recognition.continuous = false;
 
     recognition.onresult = (event) => {
-        stopListening();
+        stopListening(false);
         const command = event.results[0][0].transcript.toLowerCase();
         handleCommand(command);
     };
@@ -99,7 +104,8 @@ if (SpeechRecognition) {
     };
     
     recognition.onend = () => {
-        if (isStarted && !window.speechSynthesis.speaking && !isAnalyzing) {
+        // Hält das Mikrofon innerhalb des 20s-Fensters aktiv
+        if (isStarted && !window.speechSynthesis.speaking && !isAnalyzing && micInactivityTimer) {
             setTimeout(startListening, 300);
         }
     };
@@ -110,14 +116,31 @@ function startListening() {
         try { 
             recognition.start(); 
             playMicActiveBeep();
+            resetMicTimeout(); // 20-Sekunden Inaktivitätstimer neu starten
         } catch (e) {}
     }
 }
 
-function stopListening() {
+function stopListening(playDeactiveSound = false) {
+    clearTimeout(micInactivityTimer);
+    micInactivityTimer = null;
     if (recognition) {
         try { recognition.abort(); } catch (e) {}
     }
+    if (playDeactiveSound) {
+        playMicDeactiveBeep();
+    }
+}
+
+// 20-Sekunden Inaktivitäts-Timer
+function resetMicTimeout() {
+    clearTimeout(micInactivityTimer);
+    micInactivityTimer = setTimeout(() => {
+        // Sagt dem Nutzer Bescheid und schaltet danach mit Ton ab
+        speak("Mikrofon aus. Tippe auf den Bildschirm, um mich wieder zu aktivieren.", () => {
+            stopListening(true);
+        });
+    }, 20000);
 }
 
 // Hilfsfunktion: Bereinigt die Spracheingabe vom Such-Befehl
@@ -125,6 +148,22 @@ function extractSearchTarget(command) {
     return command
         .replace(/\b(suche|finde|nach|das|die|den|dem|ein|eine|einen|meine|mein|meinen)\b/g, '')
         .trim();
+}
+
+// Hilfsfunktion: Stößt die Spracheingabe für den Suchbegriff an
+function promptForSearchTarget() {
+    isWaitingForSearchTarget = true;
+    
+    searchTimeoutTimer = setTimeout(() => {
+        if (isWaitingForSearchTarget) {
+            isWaitingForSearchTarget = false;
+            speak("Kein Suchbegriff erkannt.", () => startListening());
+        }
+    }, 10000);
+
+    speak("Was soll ich für dich suchen?", () => {
+        startListening();
+    });
 }
 
 // 5. BEFEHLE VERARBEITEN
@@ -141,9 +180,13 @@ function handleCommand(command) {
         return;
     }
 
-    // Stopp-Befehl
+    // Stopp-Befehl: Mikrofon gezielt mit Ton ausschalten
     if (command.includes('stopp') || command.includes('halt') || command.includes('ruhe')) {
-        stopAllOutput();
+        clearTimeout(searchTimeoutTimer);
+        isWaitingForSearchTarget = false;
+        isAnalyzing = false;
+        stopListening(true);
+        statusBox.textContent = "Mikrofon gestoppt. Tippe auf den Bildschirm zum Aktivieren.";
         return;
     }
 
@@ -163,18 +206,7 @@ function handleCommand(command) {
         if (target.length > 0) {
             triggerAnalysis('search', target);
         } else {
-            isWaitingForSearchTarget = true;
-            
-            searchTimeoutTimer = setTimeout(() => {
-                if (isWaitingForSearchTarget) {
-                    isWaitingForSearchTarget = false;
-                    speak("Kein Suchbegriff erkannt.", () => startListening());
-                }
-            }, 10000);
-
-            speak("Was soll ich für dich suchen?", () => {
-                startListening();
-            });
+            promptForSearchTarget();
         }
         return;
     }
@@ -266,13 +298,11 @@ async function triggerAnalysis(mode, target = null, isRetryWithTorch = false) {
         clearTimeout(timeoutId);
         const data = await response.json();
 
-        // Licht immer sofort wieder ausschalten nach dem Zweitversuch
         if (isRetryWithTorch) {
             await setTorch(false);
         }
 
         if (response.ok && data.result) {
-            // KI signalisiert Dunkelheit -> 2. Versuch automatisch mit Blitz ausführen
             if (data.result.includes('[RETRY_WITH_TORCH]') && !isRetryWithTorch) {
                 return triggerAnalysis(mode, target, true);
             }
@@ -316,13 +346,11 @@ window.addEventListener('online', () => {
 function stopAllOutput() {
     clearTimeout(searchTimeoutTimer);
     isWaitingForSearchTarget = false;
-    stopListening();
+    stopListening(true);
     window.speechSynthesis.cancel();
-    setTorch(false); // Sicherheitshalber Licht ausschalten
+    setTorch(false);
     isAnalyzing = false;
-    playBeep(440, 0.2);
     statusBox.textContent = "Angehalten.";
-    setTimeout(startListening, 500);
 }
 
 // 9. INITIALISIERUNG
@@ -357,8 +385,13 @@ document.body.addEventListener('click', (e) => {
 
     if (!isStarted) {
         init();
-    } else if (window.speechSynthesis.speaking) {
-        stopAllOutput();
+    } else {
+        // Falls die Sprachausgabe läuft: Stoppen. Falls das Mikro aus ist: Wieder aktivieren!
+        if (window.speechSynthesis.speaking) {
+            stopAllOutput();
+        } else {
+            startListening();
+        }
     }
 });
 
@@ -366,3 +399,4 @@ document.getElementById('btnText').addEventListener('click', (e) => { e.stopProp
 document.getElementById('btnColor').addEventListener('click', (e) => { e.stopPropagation(); triggerAnalysis('color'); });
 document.getElementById('btnObject').addEventListener('click', (e) => { e.stopPropagation(); triggerAnalysis('object'); });
 document.getElementById('btnCurrency').addEventListener('click', (e) => { e.stopPropagation(); triggerAnalysis('currency'); });
+document.getElementById('btnSearch').addEventListener('click', (e) => { e.stopPropagation(); promptForSearchTarget(); });
