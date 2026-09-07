@@ -99,6 +99,7 @@ h1 {
     font-size: 0.9rem;
     background-color: #333333;
     border-radius: 8px;
+    box-shadow: 10px 10px 15px 0px var(--accent-yellow);
 }
 
 .legal-footer .disclaimer {
