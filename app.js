@@ -42,13 +42,19 @@ function playMicDeactiveBeep() {
 
 // 2. SPRACHAUSGABE (TTS)
 function speak(text, callback) {
-    stopListening(false);
+    // Spracherkennung stoppen, OHNE den Inaktivitäts-Timer abzuwürgen
+    if (recognition) {
+        try { recognition.abort(); } catch (e) {}
+    }
+    
     window.speechSynthesis.cancel();
     
     setTimeout(() => {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'de-DE';
-        utterance.rate = 1.0;
+        
+        // Tempo etwas langsamer gestellt (Standard ist 1.0)
+        utterance.rate = 0.9; 
         
         utterance.onend = () => { 
             if (callback) setTimeout(callback, 400); 
@@ -132,13 +138,11 @@ function stopListening(playDeactiveSound = false) {
     }
 }
 
-// 20-Sekunden Inaktivitäts-Timer
 function resetMicTimeout() {
     clearTimeout(micInactivityTimer);
     micInactivityTimer = setTimeout(() => {
-        // Sagt dem Nutzer Bescheid und schaltet danach mit Ton ab
         speak("Mikrofon aus. Tippe auf den Bildschirm, um mich wieder zu aktivieren.", () => {
-            stopListening(true);
+            stopListening(true); // Erst nach dem Satz mit Ton abschalten
         });
     }, 20000);
 }
