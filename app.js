@@ -158,17 +158,15 @@ function resetMicTimeout() {
     micInactivityTimer = setTimeout(() => {
         micInactivityTimer = null;
         
-        // Stoppt das Mikrofon leise, damit die Ansage nicht gestört wird
+        // 1. Erkennung sofort beenden, damit kein Befehl mehr reinfunkt
         if (recognition) {
             try { recognition.stop(); } catch (e) {}
         }
         
-        // Spricht den Hinweis und spielt danach den Abschalt-Ton
+        // 2. Ansage machen und ERST im Callback den Abschalton abspielen
         speak("Mikrofon aus. Tippe auf den Bildschirm, um mich wieder zu aktivieren.", () => {
-            if (isMicActive) {
-                playMicDeactiveBeep();
-                isMicActive = false;
-            }
+            playMicDeactiveBeep();
+            isMicActive = false;
         });
     }, 20000);
 }
@@ -210,13 +208,22 @@ function handleCommand(command) {
         return;
     }
 
-    // Stopp-Befehl: Mikrofon gezielt mit Ton ausschalten
+       // Stopp-Befehl
     if (command.includes('stopp') || command.includes('halt') || command.includes('ruhe')) {
         clearTimeout(searchTimeoutTimer);
+        clearTimeout(micInactivityTimer);
+        micInactivityTimer = null;
         isWaitingForSearchTarget = false;
         isAnalyzing = false;
-        stopListening(true);
-        statusBox.textContent = "Mikrofon gestoppt. Tippe auf den Bildschirm zum Aktivieren.";
+        
+        if (recognition) {
+            try { recognition.stop(); } catch (e) {}
+        }
+
+        speak("Mikrofon gestoppt. Tippe auf den Bildschirm zum Aktivieren.", () => {
+            playMicDeactiveBeep();
+            isMicActive = false;
+        });
         return;
     }
 
