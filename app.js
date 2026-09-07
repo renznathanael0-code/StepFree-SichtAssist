@@ -110,10 +110,7 @@ if (SpeechRecognition) {
     };
     
     recognition.onend = () => {
-        // Hält das Mikrofon innerhalb des 20s-Fensters aktiv
-        if (isStarted && !window.speechSynthesis.speaking && !isAnalyzing && micInactivityTimer) {
-            setTimeout(startListening, 300);
-        }
+        // Kein automatisches Neustarten mehr im Dauer-Takt!
     };
 }
 
@@ -122,8 +119,10 @@ function startListening() {
         try { 
             recognition.start(); 
             playMicActiveBeep();
-            resetMicTimeout(); // 20-Sekunden Inaktivitätstimer neu starten
-        } catch (e) {}
+            resetMicTimeout(); 
+        } catch (e) {
+            // Bereits aktiv
+        }
     }
 }
 
@@ -131,7 +130,7 @@ function stopListening(playDeactiveSound = false) {
     clearTimeout(micInactivityTimer);
     micInactivityTimer = null;
     if (recognition) {
-        try { recognition.abort(); } catch (e) {}
+        try { recognition.stop(); } catch (e) {}
     }
     if (playDeactiveSound) {
         playMicDeactiveBeep();
@@ -141,8 +140,12 @@ function stopListening(playDeactiveSound = false) {
 function resetMicTimeout() {
     clearTimeout(micInactivityTimer);
     micInactivityTimer = setTimeout(() => {
+        micInactivityTimer = null;
+        if (recognition) {
+            try { recognition.stop(); } catch (e) {}
+        }
         speak("Mikrofon aus. Tippe auf den Bildschirm, um mich wieder zu aktivieren.", () => {
-            stopListening(true); // Erst nach dem Satz mit Ton abschalten
+            playMicDeactiveBeep();
         });
     }, 20000);
 }
