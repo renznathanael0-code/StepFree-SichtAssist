@@ -90,7 +90,35 @@ async function setTorch(enable) {
     return false;
 }
 
-let isMicActive = false; // Verhindert doppelte Töne
+let isMicActive = false; // Verhindert doppelte Aktivierungstöne
+
+// 2. SPRACHAUSGABE (TTS)
+function speak(text, callback) {
+    // Mikrofon stoppen, damit die KI sich nicht selbst hört
+    if (recognition) {
+        try { recognition.stop(); } catch (e) {}
+    }
+    
+    window.speechSynthesis.cancel();
+    
+    setTimeout(() => {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'de-DE';
+        utterance.rate = 0.9; // Etwas langsamer für bessere Verständlichkeit
+        
+        utterance.onend = () => { 
+            if (callback) setTimeout(callback, 300); 
+        };
+        
+        utterance.onerror = (e) => { 
+            console.error("TTS Fehler:", e); 
+            if (callback) setTimeout(callback, 300); 
+        };
+        
+        statusBox.textContent = text;
+        window.speechSynthesis.speak(utterance);
+    }, 150);
+}
 
 // 4. SPRACHERKENNUNG (STT) STEUERUNG
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -99,14 +127,20 @@ let recognition;
 if (SpeechRecognition) {
     recognition = new SpeechRecognition();
     recognition.lang = 'de-DE';
-    recognition.continuous = true; // Hält das Mikrofon dauerhaft offen ohne ständiges Neustarten
+    recognition.continuous = true;
 
     recognition.onresult = (event) => {
         const lastIndex = event.results.length - 1;
         const command = event.results[lastIndex][0].transcript.toLowerCase();
         
-        // Mikrofon kurz pausieren während der Verarbeitung
-        stopListening(false);
+        // Timer stoppen & Erkennung verarbeiten
+        clearTimeout(micInactivityTimer);
+        micInactivityTimer = null;
+        
+        if (recognition) {
+            try { recognition.stop(); } catch (e) {}
+        }
+        
         handleCommand(command);
     };
 
@@ -118,7 +152,7 @@ if (SpeechRecognition) {
     
     recognition.onend = () => {
         isMicActive = false;
-        // Startet nur neu, wenn der 20s-Timer noch läuft und keine Sprachausgabe aktiv ist
+        // Startet nur neu, wenn der Timer noch läuft und keine Sprachausgabe aktiv ist
         if (isStarted && micInactivityTimer && !window.speechSynthesis.speaking && !isAnalyzing) {
             try { recognition.start(); } catch (e) {}
         }
@@ -130,7 +164,7 @@ function startListening() {
         try { 
             recognition.start(); 
             if (!isMicActive) {
-                playMicActiveBeep(); // Ton ertönt nur 1x beim echten Start!
+                playMicActiveBeep();
                 isMicActive = true;
             }
             resetMicTimeout(); 
@@ -152,23 +186,24 @@ function stopListening(playDeactiveSound = false) {
     isMicActive = false;
 }
 
-// 20-Sekunden Inaktivitäts-Timer
+// 10-Sekunden Inaktivitäts-Timer
 function resetMicTimeout() {
     clearTimeout(micInactivityTimer);
     micInactivityTimer = setTimeout(() => {
+        clearTimeout(micInactivityTimer);
         micInactivityTimer = null;
         
-        // 1. Erkennung sofort beenden, damit kein Befehl mehr reinfunkt
+        // 1. Erst Mikrofon stoppen
         if (recognition) {
             try { recognition.stop(); } catch (e) {}
         }
         
-        // 2. Ansage machen und ERST im Callback den Abschalton abspielen
+        // 2. Satz vorlesen und ERST NACH DEM SATZ den Ton abspielen
         speak("Mikrofon aus. Tippe auf den Bildschirm, um mich wieder zu aktivieren.", () => {
             playMicDeactiveBeep();
             isMicActive = false;
         });
-    }, 20000);
+    }, 10000); // 10 Sekunden
 }
 
 // Hilfsfunktion: Bereinigt die Spracheingabe vom Such-Befehl
@@ -208,7 +243,7 @@ function handleCommand(command) {
         return;
     }
 
-       // Stopp-Befehl
+    // Stopp-Befehl
     if (command.includes('stopp') || command.includes('halt') || command.includes('ruhe')) {
         clearTimeout(searchTimeoutTimer);
         clearTimeout(micInactivityTimer);
