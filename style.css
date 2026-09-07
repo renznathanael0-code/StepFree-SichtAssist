@@ -98,6 +98,7 @@ h1 {
     text-align: center;
     font-size: 0.9rem;
     background-color: #333333;
+    border-radius: 8px;
 }
 
 .legal-footer .disclaimer {
