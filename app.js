@@ -6,7 +6,8 @@ let isAnalyzing = false;
 let isStarted = false;
 let isWaitingForSearchTarget = false;
 let searchTimeoutTimer = null;
-let micInactivityTimer = null; // Timer für 20s Mikrofon-Timeout
+let micInactivityTimer = null; // Timer für 10s Mikrofon-Timeout
+let isMicActive = false; // Verhindert doppelte Aktivierungstöne
 let lastResult = "";
 
 // 1. AUDIO-BEEP
@@ -42,9 +43,9 @@ function playMicDeactiveBeep() {
 
 // 2. SPRACHAUSGABE (TTS)
 function speak(text, callback) {
-    // Spracherkennung stoppen, OHNE den Inaktivitäts-Timer abzuwürgen
+    // Mikrofon stoppen, damit die KI sich nicht selbst hört
     if (recognition) {
-        try { recognition.abort(); } catch (e) {}
+        try { recognition.stop(); } catch (e) {}
     }
     
     window.speechSynthesis.cancel();
@@ -52,17 +53,15 @@ function speak(text, callback) {
     setTimeout(() => {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'de-DE';
-        
-        // Tempo etwas langsamer gestellt (Standard ist 1.0)
-        utterance.rate = 0.9; 
+        utterance.rate = 0.9; // Etwas langsamer für bessere Verständlichkeit
         
         utterance.onend = () => { 
-            if (callback) setTimeout(callback, 400); 
+            if (callback) setTimeout(callback, 300); 
         };
         
         utterance.onerror = (e) => { 
             console.error("TTS Fehler:", e); 
-            if (callback) setTimeout(callback, 400); 
+            if (callback) setTimeout(callback, 300); 
         };
         
         statusBox.textContent = text;
@@ -88,36 +87,6 @@ async function setTorch(enable) {
         }
     }
     return false;
-}
-
-let isMicActive = false; // Verhindert doppelte Aktivierungstöne
-
-// 2. SPRACHAUSGABE (TTS)
-function speak(text, callback) {
-    // Mikrofon stoppen, damit die KI sich nicht selbst hört
-    if (recognition) {
-        try { recognition.stop(); } catch (e) {}
-    }
-    
-    window.speechSynthesis.cancel();
-    
-    setTimeout(() => {
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'de-DE';
-        utterance.rate = 0.9; // Etwas langsamer für bessere Verständlichkeit
-        
-        utterance.onend = () => { 
-            if (callback) setTimeout(callback, 300); 
-        };
-        
-        utterance.onerror = (e) => { 
-            console.error("TTS Fehler:", e); 
-            if (callback) setTimeout(callback, 300); 
-        };
-        
-        statusBox.textContent = text;
-        window.speechSynthesis.speak(utterance);
-    }, 150);
 }
 
 // 4. SPRACHERKENNUNG (STT) STEUERUNG
@@ -458,7 +427,6 @@ document.body.addEventListener('click', (e) => {
     if (!isStarted) {
         init();
     } else {
-        // Falls die Sprachausgabe läuft: Stoppen. Falls das Mikro aus ist: Wieder aktivieren!
         if (window.speechSynthesis.speaking) {
             stopAllOutput();
         } else {
@@ -466,6 +434,15 @@ document.body.addEventListener('click', (e) => {
         }
     }
 });
+
+// Disclaimer vorlesen bei Klick / Touch
+const disclaimerElement = document.getElementById('disclaimer');
+if (disclaimerElement) {
+    disclaimerElement.addEventListener('click', (e) => {
+        e.stopPropagation(); 
+        speak(disclaimerElement.textContent);
+    });
+}
 
 document.getElementById('btnText').addEventListener('click', (e) => { e.stopPropagation(); triggerAnalysis('text'); });
 document.getElementById('btnColor').addEventListener('click', (e) => { e.stopPropagation(); triggerAnalysis('color'); });
