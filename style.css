@@ -88,6 +88,8 @@ h1 {
 .btn-blue   { background-color: var(--accent-blue); }
 .btn-white  { background-color: #ffffff; }
 .btn-red  { background-color: #ff1a1a;}
+.btn-orange { background-color: #ff8000; }
+
 
 .btn:focus {
     outline: 6px solid #ff0055;

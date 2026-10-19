@@ -5,9 +5,10 @@ const statusBox = document.getElementById('appStatus');
 let isAnalyzing = false;
 let isStarted = false;
 let isWaitingForSearchTarget = false;
+let isWaitingForCountTarget = false;
 let searchTimeoutTimer = null;
-let micInactivityTimer = null; // Timer für 10s Mikrofon-Timeout
-let isMicActive = false; // Verhindert doppelte Aktivierungstöne
+let micInactivityTimer = null; 
+let isMicActive = false; 
 let lastResult = "";
 
 // 1. AUDIO-BEEP
@@ -34,16 +35,15 @@ function playBeep(freq = 880, duration = 0.15) {
 }
 
 function playMicActiveBeep() {
-    playBeep(1200, 0.08); // Hoher Ton für Mikrofon AN
+    playBeep(1200, 0.08); 
 }
 
 function playMicDeactiveBeep() {
-    playBeep(440, 0.12); // Tieferer Ton für Mikrofon AUS
+    playBeep(440, 0.12); 
 }
 
 // 2. SPRACHAUSGABE (TTS)
 function speak(text, callback) {
-    // Mikrofon stoppen, damit die KI sich nicht selbst hört
     if (recognition) {
         try { recognition.stop(); } catch (e) {}
     }
@@ -53,7 +53,7 @@ function speak(text, callback) {
     setTimeout(() => {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'de-DE';
-        utterance.rate = 0.9; // Etwas langsamer für bessere Verständlichkeit
+        utterance.rate = 0.9; 
         
         utterance.onend = () => { 
             if (callback) setTimeout(callback, 300); 
@@ -102,7 +102,6 @@ if (SpeechRecognition) {
         const lastIndex = event.results.length - 1;
         const command = event.results[lastIndex][0].transcript.toLowerCase();
         
-        // Timer stoppen & Erkennung verarbeiten
         clearTimeout(micInactivityTimer);
         micInactivityTimer = null;
         
@@ -121,7 +120,6 @@ if (SpeechRecognition) {
     
     recognition.onend = () => {
         isMicActive = false;
-        // Startet nur neu, wenn der Timer noch läuft und keine Sprachausgabe aktiv ist
         if (isStarted && micInactivityTimer && !window.speechSynthesis.speaking && !isAnalyzing) {
             try { recognition.start(); } catch (e) {}
         }
@@ -162,27 +160,24 @@ function resetMicTimeout() {
         clearTimeout(micInactivityTimer);
         micInactivityTimer = null;
         
-        // 1. Erst Mikrofon stoppen
         if (recognition) {
             try { recognition.stop(); } catch (e) {}
         }
         
-        // 2. Satz vorlesen und ERST NACH DEM SATZ den Ton abspielen
         speak("Mikrofon aus. Tippe auf den Bildschirm, um mich wieder zu aktivieren.", () => {
             playMicDeactiveBeep();
             isMicActive = false;
         });
-    }, 10000); // 10 Sekunden
+    }, 10000); 
 }
 
-// Hilfsfunktion: Bereinigt die Spracheingabe vom Such-Befehl
+// Hilfsfunktionen für Spracheingaben
 function extractSearchTarget(command) {
     return command
         .replace(/\b(suche|finde|nach|das|die|den|dem|ein|eine|einen|meine|mein|meinen)\b/g, '')
         .trim();
 }
 
-// Hilfsfunktion: Stößt die Spracheingabe für den Suchbegriff an
 function promptForSearchTarget() {
     isWaitingForSearchTarget = true;
     
@@ -198,26 +193,45 @@ function promptForSearchTarget() {
     });
 }
 
-// 5. BEFEHLE VERARBEITEN
+function promptForCountTarget() {
+    isWaitingForCountTarget = true;
+    
+    searchTimeoutTimer = setTimeout(() => {
+        if (isWaitingForCountTarget) {
+            isWaitingForCountTarget = false;
+            speak("Kein Zählobjekt erkannt.", () => startListening());
+        }
+    }, 10000);
+
+    speak("Was soll ich für dich zählen?", () => {
+        startListening();
+    });
+}
+
+// 5. BEFEHLE VERARBEITEN (Inkl. Kombinierte Befehle & Zählen)
 function handleCommand(command) {
-    // Falls auf die Nennung des Such-Gegenstands gewartet wird
     if (isWaitingForSearchTarget) {
         clearTimeout(searchTimeoutTimer);
         isWaitingForSearchTarget = false;
-        
         const cleanTarget = extractSearchTarget(command);
-        const finalTarget = cleanTarget.length > 0 ? cleanTarget : command;
-        
-        triggerAnalysis('search', finalTarget);
+        triggerAnalysis('search', cleanTarget.length > 0 ? cleanTarget : command);
         return;
     }
 
-    // Stopp-Befehl
+    if (isWaitingForCountTarget) {
+        clearTimeout(searchTimeoutTimer);
+        isWaitingForCountTarget = false;
+        const cleanTarget = extractSearchTarget(command);
+        triggerAnalysis('count', cleanTarget.length > 0 ? cleanTarget : command);
+        return;
+    }
+
     if (command.includes('stopp') || command.includes('halt') || command.includes('ruhe')) {
         clearTimeout(searchTimeoutTimer);
         clearTimeout(micInactivityTimer);
         micInactivityTimer = null;
         isWaitingForSearchTarget = false;
+        isWaitingForCountTarget = false;
         isAnalyzing = false;
         
         if (recognition) {
@@ -231,7 +245,6 @@ function handleCommand(command) {
         return;
     }
 
-    // Rechtliche Seiten
     if (command.includes('impressum')) {
         speak("Öffne Impressum.", () => { window.location.href = 'impressum.html'; });
         return;
@@ -241,7 +254,23 @@ function handleCommand(command) {
         return;
     }
 
-    // Such-Befehl
+    // Kombinierte Befehle erkennen (z.B. "text und farbe" oder "geld und zähle")
+    let detectedModes = [];
+    if (command.includes('text') || command.includes('lesen')) detectedModes.push('text');
+    if (command.includes('farbe')) detectedModes.push('color');
+    if (command.includes('objekt') || command.includes('was ist das')) detectedModes.push('object');
+    if (command.includes('geld') || command.includes('schein') || command.includes('münze')) detectedModes.push('currency');
+    
+    if (command.includes('zähle') || command.includes('zählen') || command.includes('wie viele')) {
+        const target = extractSearchTarget(command.replace(/zähle|zählen|wie viele/g, ''));
+        if (target.length > 0) {
+            triggerAnalysis('count', target);
+        } else {
+            promptForCountTarget();
+        }
+        return;
+    }
+
     if (command.includes('suche') || command.includes('finde')) {
         const target = extractSearchTarget(command);
         if (target.length > 0) {
@@ -252,17 +281,27 @@ function handleCommand(command) {
         return;
     }
 
-    // Hilfe-Befehl
+    // Wenn mehrere Modi gleichzeitig erkannt wurden (Kombination!)
+    if (detectedModes.length > 1) {
+        triggerAnalysis(detectedModes.join('+'));
+        return;
+    }
+
+    // Einzelne Modi
+    if (detectedModes.length === 1) {
+        triggerAnalysis(detectedModes[0]);
+        return;
+    }
+
     if (command.includes('hilfe') || command.includes('befehle') || command.includes('optionen')) {
         playBeep(600, 0.1);
         speak(
-            "Mögliche Befehle sind: Text, Farbe, Objekt, Geld, Suche, Wiederholen, Impressum, Datenschutz oder Stopp.", 
+            "Mögliche Befehle sind: Text, Farbe, Objekt, Geld, Zählen, Suche, Wiederholen, Impressum, Datenschutz oder Stopp. Du kannst Befehle auch kombinieren, wie Text und Farbe.", 
             () => startListening()
         );
         return;
     }
 
-    // Wiederholen-Befehl
     if (command.includes('wiederholen') || command.includes('nochmal')) {
         playBeep(600, 0.1);
         if (lastResult) {
@@ -273,18 +312,7 @@ function handleCommand(command) {
         return;
     }
 
-    // Analyse-Modi
-    if (command.includes('text') || command.includes('lesen')) {
-        triggerAnalysis('text');
-    } else if (command.includes('farbe')) {
-        triggerAnalysis('color');
-    } else if (command.includes('objekt') || command.includes('was ist das')) {
-        triggerAnalysis('object');
-    } else if (command.includes('geld') || command.includes('schein') || command.includes('münze')) {
-        triggerAnalysis('currency');
-    } else {
-        speak("Nicht verstanden. Sage einen Modus wie Text, Geld oder Suche, oder sage Hilfe für alle Befehle.", () => startListening());
-    }
+    speak("Nicht verstanden. Sage einen Modus wie Text, Geld, Zählen oder Hilfe für alle Befehle.", () => startListening());
 }
 
 // 6. BILD CAPTUREN
@@ -302,7 +330,7 @@ function captureImageBase64() {
     return canvas.toDataURL('image/jpeg', 0.7);
 }
 
-// 7. BACKEND ANFRAGE (mit Licht-Fallback)
+// 7. BACKEND ANFRAGE
 async function triggerAnalysis(mode, target = null, isRetryWithTorch = false) {
     if (!navigator.onLine) {
         speak("Keine Internetverbindung verfügbar. Bitte prüfe deine Verbindung.", () => startListening());
@@ -319,7 +347,10 @@ async function triggerAnalysis(mode, target = null, isRetryWithTorch = false) {
         await setTorch(true);
         await new Promise(resolve => setTimeout(resolve, 400));
     } else {
-        const statusText = mode === 'search' ? `Suche nach ${target}...` : "Analysiere Bild, bitte warten...";
+        let statusText = "Analysiere Bild, bitte warten...";
+        if (mode === 'search') statusText = `Suche nach ${target}...`;
+        if (mode === 'count') statusText = `Zähle ${target || 'Objekte'}...`;
+        if (mode.includes('+')) statusText = "Führe kombinierte Analyse durch...";
         speak(statusText, null);
     }
 
@@ -387,6 +418,7 @@ window.addEventListener('online', () => {
 function stopAllOutput() {
     clearTimeout(searchTimeoutTimer);
     isWaitingForSearchTarget = false;
+    isWaitingForCountTarget = false;
     stopListening(true);
     window.speechSynthesis.cancel();
     setTorch(false);
@@ -405,7 +437,7 @@ async function init() {
         });
         video.srcObject = stream;
         
-        speak("SichtAssist bereit. Sage Text, Farbe, Objekt, Geld oder Suche. Für alle Optionen sage Hilfe.", () => {
+        speak("SichtAssist bereit. Sage Text, Farbe, Objekt, Geld, Zählen oder Suche. Für alle Optionen sage Hilfe.", () => {
             startListening();
         });
 
@@ -448,4 +480,5 @@ document.getElementById('btnText').addEventListener('click', (e) => { e.stopProp
 document.getElementById('btnColor').addEventListener('click', (e) => { e.stopPropagation(); triggerAnalysis('color'); });
 document.getElementById('btnObject').addEventListener('click', (e) => { e.stopPropagation(); triggerAnalysis('object'); });
 document.getElementById('btnCurrency').addEventListener('click', (e) => { e.stopPropagation(); triggerAnalysis('currency'); });
+document.getElementById('btnCount').addEventListener('click', (e) => { e.stopPropagation(); promptForCountTarget(); });
 document.getElementById('btnSearch').addEventListener('click', (e) => { e.stopPropagation(); promptForSearchTarget(); });
