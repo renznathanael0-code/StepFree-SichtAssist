@@ -180,6 +180,7 @@ function extractSearchTarget(command) {
 
 function promptForSearchTarget() {
     isWaitingForSearchTarget = true;
+    stopListening(false); // Mikrofon sofort stoppen, damit keine Reste reinreden
     
     searchTimeoutTimer = setTimeout(() => {
         if (isWaitingForSearchTarget) {
@@ -189,12 +190,13 @@ function promptForSearchTarget() {
     }, 10000);
 
     speak("Was soll ich für dich suchen?", () => {
-        startListening();
+        startListening(); // Startet Mikrofon + Aktivierungston NACH der Sprachausgabe
     });
 }
 
 function promptForCountTarget() {
     isWaitingForCountTarget = true;
+    stopListening(false); // Mikrofon sofort stoppen
     
     searchTimeoutTimer = setTimeout(() => {
         if (isWaitingForCountTarget) {
@@ -203,9 +205,8 @@ function promptForCountTarget() {
         }
     }, 10000);
 
-    // Spricht den Text und startet das Mikrofon erst im Callback nach Ende der Sprachausgabe!
     speak("Was soll ich für dich zählen?", () => {
-        startListening();
+        startListening(); // Startet Mikrofon + Aktivierungston NACH der Sprachausgabe
     });
 }
 
@@ -255,7 +256,7 @@ function handleCommand(command) {
         return;
     }
 
-    // Kombinierte Befehle erkennen (z.B. "text und farbe" oder "geld und zähle")
+    // Kombinierte Befehle erkennen (z.B. "text und farbe")
     let detectedModes = [];
     if (command.includes('text') || command.includes('lesen')) detectedModes.push('text');
     if (command.includes('farbe')) detectedModes.push('color');
@@ -263,7 +264,8 @@ function handleCommand(command) {
     if (command.includes('geld') || command.includes('schein') || command.includes('münze')) detectedModes.push('currency');
     
     if (command.includes('zähle') || command.includes('zählen') || command.includes('wie viele')) {
-        const target = extractSearchTarget(command.replace(/zähle|zählen|wie viele/g, ''));
+        let cleanCommand = command.replace(/zähle|zählen|wie viele/g, '');
+        const target = extractSearchTarget(cleanCommand);
         if (target.length > 0) {
             triggerAnalysis('count', target);
         } else {
@@ -273,7 +275,8 @@ function handleCommand(command) {
     }
 
     if (command.includes('suche') || command.includes('finde')) {
-        const target = extractSearchTarget(command);
+        let cleanCommand = command.replace(/suche|finde/g, '');
+        const target = extractSearchTarget(cleanCommand);
         if (target.length > 0) {
             triggerAnalysis('search', target);
         } else {
