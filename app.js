@@ -180,7 +180,7 @@ function extractSearchTarget(command) {
 
 function promptForSearchTarget() {
     isWaitingForSearchTarget = true;
-    stopListening(false); // Mikrofon sofort stoppen, damit keine Reste reinreden
+    stopListening(false); 
     
     searchTimeoutTimer = setTimeout(() => {
         if (isWaitingForSearchTarget) {
@@ -190,13 +190,13 @@ function promptForSearchTarget() {
     }, 10000);
 
     speak("Was soll ich für dich suchen?", () => {
-        startListening(); // Startet Mikrofon + Aktivierungston NACH der Sprachausgabe
+        startListening(); 
     });
 }
 
 function promptForCountTarget() {
     isWaitingForCountTarget = true;
-    stopListening(false); // Mikrofon sofort stoppen
+    stopListening(false); 
     
     searchTimeoutTimer = setTimeout(() => {
         if (isWaitingForCountTarget) {
@@ -206,7 +206,7 @@ function promptForCountTarget() {
     }, 10000);
 
     speak("Was soll ich für dich zählen?", () => {
-        startListening(); // Startet Mikrofon + Aktivierungston NACH der Sprachausgabe
+        startListening(); 
     });
 }
 
@@ -256,24 +256,7 @@ function handleCommand(command) {
         return;
     }
 
-    // Kombinierte Befehle erkennen (z.B. "text und farbe")
-    let detectedModes = [];
-    if (command.includes('text') || command.includes('lesen')) detectedModes.push('text');
-    if (command.includes('farbe')) detectedModes.push('color');
-    if (command.includes('objekt') || command.includes('was ist das')) detectedModes.push('object');
-    if (command.includes('geld') || command.includes('schein') || command.includes('münze')) detectedModes.push('currency');
-    
-    if (command.includes('zähle') || command.includes('zählen') || command.includes('wie viele')) {
-        let cleanCommand = command.replace(/zähle|zählen|wie viele/g, '');
-        const target = extractSearchTarget(cleanCommand);
-        if (target.length > 0) {
-            triggerAnalysis('count', target);
-        } else {
-            promptForCountTarget();
-        }
-        return;
-    }
-
+    // --- PRIORITÄT: Suche und Zählen direkt ganz oben prüfen (exakt wie bei der Suche) ---
     if (command.includes('suche') || command.includes('finde')) {
         let cleanCommand = command.replace(/suche|finde/g, '');
         const target = extractSearchTarget(cleanCommand);
@@ -285,6 +268,24 @@ function handleCommand(command) {
         return;
     }
 
+    if (command.includes('zähle') || command.includes('zählen') || command.includes('wie viele')) {
+        let cleanCommand = command.replace(/zähle|zählen|wie viele/g, '');
+        const target = extractSearchTarget(cleanCommand);
+        if (target.length > 0) {
+            triggerAnalysis('count', target);
+        } else {
+            promptForCountTarget();
+        }
+        return;
+    }
+
+    // Kombinierte Befehle erkennen (z.B. "text und farbe")
+    let detectedModes = [];
+    if (command.includes('text') || command.includes('lesen')) detectedModes.push('text');
+    if (command.includes('farbe')) detectedModes.push('color');
+    if (command.includes('objekt') || command.includes('was ist das')) detectedModes.push('object');
+    if (command.includes('geld') || command.includes('schein') || command.includes('münze')) detectedModes.push('currency');
+    
     // Wenn mehrere Modi gleichzeitig erkannt wurden (Kombination!)
     if (detectedModes.length > 1) {
         triggerAnalysis(detectedModes.join('+'));
