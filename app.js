@@ -203,6 +203,7 @@ function promptForCountTarget() {
         }
     }, 10000);
 
+    // Spricht den Text und startet das Mikrofon erst im Callback nach Ende der Sprachausgabe!
     speak("Was soll ich für dich zählen?", () => {
         startListening();
     });
@@ -480,5 +481,13 @@ document.getElementById('btnText').addEventListener('click', (e) => { e.stopProp
 document.getElementById('btnColor').addEventListener('click', (e) => { e.stopPropagation(); triggerAnalysis('color'); });
 document.getElementById('btnObject').addEventListener('click', (e) => { e.stopPropagation(); triggerAnalysis('object'); });
 document.getElementById('btnCurrency').addEventListener('click', (e) => { e.stopPropagation(); triggerAnalysis('currency'); });
-document.getElementById('btnCount').addEventListener('click', (e) => { e.stopPropagation(); promptForCountTarget(); });
-document.getElementById('btnSearch').addEventListener('click', (e) => { e.stopPropagation(); promptForSearchTarget(); });
+document.getElementById('btnCount').addEventListener('click', (e) => { 
+    e.stopPropagation(); 
+    stopListening(false); 
+    promptForCountTarget(); 
+});
+document.getElementById('btnSearch').addEventListener('click', (e) => { 
+    e.stopPropagation(); 
+    stopListening(false); 
+    promptForSearchTarget(); 
+});
