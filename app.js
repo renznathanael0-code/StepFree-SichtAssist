@@ -212,6 +212,7 @@ function promptForCountTarget() {
 
 // 5. BEFEHLE VERARBEITEN (Inkl. Kombinierte Befehle & Zählen)
 function handleCommand(command) {
+    // 1. Wenn wir auf ein Suchziel warten
     if (isWaitingForSearchTarget) {
         clearTimeout(searchTimeoutTimer);
         isWaitingForSearchTarget = false;
@@ -220,11 +221,16 @@ function handleCommand(command) {
         return;
     }
 
+    // 2. Wenn wir auf ein Zählobjekt warten
     if (isWaitingForCountTarget) {
         clearTimeout(searchTimeoutTimer);
         isWaitingForCountTarget = false;
-        const cleanTarget = extractSearchTarget(command);
-        triggerAnalysis('count', cleanTarget.length > 0 ? cleanTarget : command);
+        
+        // Ignoriere, falls die App fälschlicherweise das Wort "zähle" selbst auffängt
+        let cleanTarget = command.replace(/\b(zähle|zählen|wie viele|das|die|den|dem|ein|eine|einen)\b/g, '').trim();
+        const finalTarget = cleanTarget.length > 0 ? cleanTarget : command;
+        
+        triggerAnalysis('count', finalTarget);
         return;
     }
 
@@ -256,11 +262,11 @@ function handleCommand(command) {
         return;
     }
 
-    // --- PRIORITÄT: Suche und Zählen direkt ganz oben prüfen (exakt wie bei der Suche) ---
+    // --- SICHERE SUCHE ---
     if (command.includes('suche') || command.includes('finde')) {
         let cleanCommand = command.replace(/suche|finde/g, '');
         const target = extractSearchTarget(cleanCommand);
-        if (target.length > 0) {
+        if (target.length > 1) { // Mindestens 2 Zeichen, um einzelne Buchstaben-Hänger zu verhindern
             triggerAnalysis('search', target);
         } else {
             promptForSearchTarget();
@@ -268,13 +274,14 @@ function handleCommand(command) {
         return;
     }
 
+    // --- SICHERES ZÄHLEN ---
     if (command.includes('zähle') || command.includes('zählen') || command.includes('wie viele')) {
         let cleanCommand = command.replace(/zähle|zählen|wie viele/g, '');
         const target = extractSearchTarget(cleanCommand);
-        if (target.length > 0) {
+        if (target.length > 1) { // Mindestens 2 Zeichen (z.B. "Stifte")
             triggerAnalysis('count', target);
         } else {
-            promptForCountTarget();
+            promptForCountTarget(); // Nur ausführen, wenn wirklich nur "Zähle" gesagt wurde
         }
         return;
     }
@@ -286,13 +293,11 @@ function handleCommand(command) {
     if (command.includes('objekt') || command.includes('was ist das')) detectedModes.push('object');
     if (command.includes('geld') || command.includes('schein') || command.includes('münze')) detectedModes.push('currency');
     
-    // Wenn mehrere Modi gleichzeitig erkannt wurden (Kombination!)
     if (detectedModes.length > 1) {
         triggerAnalysis(detectedModes.join('+'));
         return;
     }
 
-    // Einzelne Modi
     if (detectedModes.length === 1) {
         triggerAnalysis(detectedModes[0]);
         return;
