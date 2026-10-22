@@ -6,32 +6,47 @@
     <title>StepFree SichtAssist - Barrierefreie Assistenz</title>
     <link rel="stylesheet" href="style.css">
 
-<link rel="manifest" href="manifest.json">
-<link rel="icon" type="image/svg+xml" href="icon.svg">
-<link rel="apple-touch-icon" href="icon.svg">
-<meta name="theme-color" content="#000000">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/svg+xml" href="icon.svg">
+    <link rel="apple-touch-icon" href="icon.svg">
+    <meta name="theme-color" content="#000000">
 
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="SichtAssist">
 
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="SichtAssist">
-
-
+    <!-- Firebase SDKs (Realtime Database & Auth) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+    <script>
+      // Deine Firebase Konfigurationsdaten (bitte mit deinen echten Daten füllen)
+      const firebaseConfig = {
+    apiKey: "AIzaSyATrgo4W9HZso2NubOvuKlQJYmgy7dpcx4",
+    authDomain: "sichtassist.firebaseapp.com",
+    databaseURL: "https://sichtassist-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "sichtassist",
+    storageBucket: "sichtassist.firebasestorage.app",
+    messagingSenderId: "94087723138",
+    appId: "1:94087723138:web:345092b2d0bdbb0e7b9c9b",
+    measurementId: "G-JCQN7JHPYT"
+};
+      firebase.initializeApp(firebaseConfig);
+    </script>
 </head>
 <body>
 
     <header role="banner">
         <h1>SichtAssist</h1>
-      <p id="appStatus" aria-live="assertive" role="alert">
-  Tippe einmal auf den Bildschirm, um SichtAssist zu starten.
-</p>
-
+        <p id="appStatus" aria-live="assertive" role="alert">
+            Tippe einmal auf den Bildschirm, um SichtAssist zu starten.
+        </p>
     </header>
 
     <main role="main">
         <video id="cameraFeed" autoplay playsinline class="video-preview" aria-hidden="true"></video>
 
-              <div class="button-grid" role="region" aria-label="Steuerungsknöpfe">
+        <div class="button-grid" role="region" aria-label="Steuerungsknöpfe">
             <button id="btnText" class="btn btn-blue" aria-label="Text vorlesen">
                 <span>📄 Text</span>
             </button>
@@ -51,19 +66,41 @@
                 <span>🔍 Suche</span>
             </button>
         </div>
-
     </main>
 
-   <footer role="contentinfo" class="legal-footer">
-    <p id="disclaimer" class="disclaimer">Wichtiger Hinweis (Haftungsausschluss): SichtAssist versteht sich ausschließlich als Orientierungs- und Lesehilfe zur Unterstützung im Alltag. Die App basiert auf einer KI-gestützten Bild- und Sprachauswertung, die fehlerhafte Ergebnisse liefern kann.Keine Sicherheitsfunktion: Die App ist nicht zur Navigation im Straßenverkehr zugelassen und ersetzt niemals traditionelle Mobilitätshilfen (wie einen Blindenlangstock oder einen Führhund). Keine medizinische oder rechtliche Verlässlichkeit: Verlassen Sie sich bei der Erkennung von Gefahrenzeichen, wichtigen Dokumenten oder medizinischen Produkten (wie Medikamentendosierungen oder Haltbarkeitsdaten) niemals allein auf die App. Die Nutzung erfolgt auf eigene Gefahr. Eine Haftung für Schäden, die durch Fehlinterpretationen der Anwendung entstehen, wird ausgeschlossen.</p>
-    <nav aria-label="Rechtliches">
-        <a href="impressum.html" id="linkImpressum">Impressum</a>
-        <a href="datenschutz.html" id="linkDatenschutz">Datenschutz</a>
-    </nav>
-</footer>
+    <footer role="contentinfo" class="legal-footer">
+        <p id="disclaimer" class="disclaimer">Wichtiger Hinweis (Haftungsausschluss): SichtAssist versteht sich ausschließlich als Orientierungs- und Lesehilfe zur Unterstützung im Alltag. Die App basiert auf einer KI-gestützten Bild- und Sprachauswertung, die fehlerhafte Ergebnisse liefern kann. Keine Sicherheitsfunktion: Die App is nicht zur Navigation im Straßenverkehr zugelassen und ersetzt niemals traditionelle Mobilitätshilfen (wie einen Blindenlangstock oder einen Führhund). Keine medizinische oder rechtliche Verlässlichkeit: Verlassen Sie sich bei der Erkennung von Gefahrenzeichen, wichtigen Dokumenten oder medizinischen Produkten (wie Medikamentendosierungen oder Haltbarkeitsdaten) niemals allein auf die App. Die Nutzung erfolgt auf eigene Gefahr. Eine Haftung für Schäden, die durch Fehlinterpretationen der Anwendung entstehen, wird ausgeschlossen.</p>
+        <nav aria-label="Rechtliches">
+            <a href="impressum.html" id="linkImpressum">Impressum</a>
+            <a href="datenschutz.html" id="linkDatenschutz">Datenschutz</a>
+            <!-- Unauffälliger Admin-Button im Footer -->
+            <a href="#" id="btnAdmin" style="color: #666; text-decoration: none; margin-left: 15px;">Admin</a>
+        </nav>
+    </footer>
 
+    <!-- Admin Modal / Dashboard (Standardmäßig versteckt) -->
+    <div id="adminModal" style="display:none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 9999; padding: 20px; color: #fff; box-sizing: border-box; overflow-y: auto;">
+        <div style="max-width: 800px; margin: 40px auto;">
+            <h2>Admin-Fehlerprotokoll</h2>
+            
+            <!-- Login Ansicht -->
+            <div id="adminLoginView">
+                <p>Bitte logge dich mit deinen Admin-Zugangsdaten ein:</p>
+                <input type="email" id="adminEmail" placeholder="E-Mail-Adresse" style="padding: 10px; font-size: 16px; width: 100%; margin-bottom: 10px; box-sizing: border-box;"><br>
+                <input type="password" id="adminPassword" placeholder="Passwort" style="padding: 10px; font-size: 16px; width: 100%; margin-bottom: 15px; box-sizing: border-box;"><br>
+                <button id="btnLoginSubmit" style="padding: 10px 20px; font-size: 16px; background: #ff8000; color: white; border: none; cursor: pointer;">Anmelden</button>
+                <button id="btnCloseAdminLogin" style="padding: 10px 20px; font-size: 16px; background: #444; color: white; border: none; cursor: pointer; margin-left: 10px;">Abbrechen</button>
+            </div>
 
+            <!-- Dashboard Ansicht (Nach Login sichtbar) -->
+            <div id="adminDashboardView" style="display:none; margin-top: 20px;">
+                <button id="btnCloseAdmin" style="background: #cc0000; color: white; padding: 10px 20px; border: none; cursor: pointer; margin-bottom: 20px;">Schließen & Abmelden</button>
+                <div id="errorListContainer">Lade Fehler...</div>
+            </div>
+        </div>
+    </div>
 
-    <script src="app.js"></script>
+    <!-- Dein Haupt-Skript -->
+    <script src="script.js"></script>
 </body>
 </html>

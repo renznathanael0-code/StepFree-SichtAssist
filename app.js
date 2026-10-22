@@ -190,7 +190,16 @@ function promptForSearchTarget() {
     }, 10000);
 
     speak("Was soll ich für dich suchen?", () => {
-        startListening(); 
+        if (recognition && isStarted) {
+            try {
+                recognition.start();
+                playMicActiveBeep();
+                isMicActive = true;
+                resetMicTimeout();
+            } catch (e) {
+                startListening();
+            }
+        }
     });
 }
 
@@ -206,13 +215,21 @@ function promptForCountTarget() {
     }, 10000);
 
     speak("Was soll ich für dich zählen?", () => {
-        startListening(); 
+        if (recognition && isStarted) {
+            try {
+                recognition.start();
+                playMicActiveBeep();
+                isMicActive = true;
+                resetMicTimeout();
+            } catch (e) {
+                startListening();
+            }
+        }
     });
 }
 
 // 5. BEFEHLE VERARBEITEN (Inkl. Kombinierte Befehle & Zählen)
 function handleCommand(command) {
-    // 1. Wenn wir auf ein Suchziel warten
     if (isWaitingForSearchTarget) {
         clearTimeout(searchTimeoutTimer);
         isWaitingForSearchTarget = false;
@@ -221,15 +238,11 @@ function handleCommand(command) {
         return;
     }
 
-    // 2. Wenn wir auf ein Zählobjekt warten
     if (isWaitingForCountTarget) {
         clearTimeout(searchTimeoutTimer);
         isWaitingForCountTarget = false;
-        
-        // Ignoriere, falls die App fälschlicherweise das Wort "zähle" selbst auffängt
         let cleanTarget = command.replace(/\b(zähle|zählen|wie viele|das|die|den|dem|ein|eine|einen)\b/g, '').trim();
         const finalTarget = cleanTarget.length > 0 ? cleanTarget : command;
-        
         triggerAnalysis('count', finalTarget);
         return;
     }
@@ -262,11 +275,10 @@ function handleCommand(command) {
         return;
     }
 
-    // --- SICHERE SUCHE ---
     if (command.includes('suche') || command.includes('finde')) {
         let cleanCommand = command.replace(/suche|finde/g, '');
         const target = extractSearchTarget(cleanCommand);
-        if (target.length > 1) { // Mindestens 2 Zeichen, um einzelne Buchstaben-Hänger zu verhindern
+        if (target.length > 1) {
             triggerAnalysis('search', target);
         } else {
             promptForSearchTarget();
@@ -274,19 +286,17 @@ function handleCommand(command) {
         return;
     }
 
-    // --- SICHERES ZÄHLEN ---
     if (command.includes('zähle') || command.includes('zählen') || command.includes('wie viele')) {
         let cleanCommand = command.replace(/zähle|zählen|wie viele/g, '');
         const target = extractSearchTarget(cleanCommand);
-        if (target.length > 1) { // Mindestens 2 Zeichen (z.B. "Stifte")
+        if (target.length > 1) {
             triggerAnalysis('count', target);
         } else {
-            promptForCountTarget(); // Nur ausführen, wenn wirklich nur "Zähle" gesagt wurde
+            promptForCountTarget();
         }
         return;
     }
 
-    // Kombinierte Befehle erkennen (z.B. "text und farbe")
     let detectedModes = [];
     if (command.includes('text') || command.includes('lesen')) detectedModes.push('text');
     if (command.includes('farbe')) detectedModes.push('color');
@@ -338,6 +348,22 @@ function captureImageBase64() {
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     
     return canvas.toDataURL('image/jpeg', 0.7);
+}
+
+// Fehler in Firebase Realtime Database speichern
+async function saveErrorToFirebase(errorMessage, mode) {
+    try {
+        const errorsRef = firebase.database().ref('app_errors');
+        await errorsRef.push({
+            error: errorMessage,
+            mode: mode || "unknown",
+            timestamp: firebase.database.ServerValue.TIMESTAMP,
+            dateString: new Date().toLocaleString('de-DE')
+        });
+        console.log("Fehler erfolgreich in Realtime Database protokolliert.");
+    } catch (e) {
+        console.error("Konnte Fehler nicht in Firebase speichern:", e);
+    }
 }
 
 // 7. BACKEND ANFRAGE
@@ -395,8 +421,12 @@ async function triggerAnalysis(mode, target = null, isRetryWithTorch = false) {
                 startListening();
             });
         } else {
-            const errorMsg = data.details || data.error || "Fehler bei der Bildanalyse.";
-            speak(errorMsg, () => {
+            // Technischen Fehler abfangen und in Firebase speichern
+            const rawError = data.details || data.error || `HTTP Fehler: ${response.status}`;
+            saveErrorToFirebase(rawError, mode);
+
+            // Benutzerfreundliche Sprachausgabe
+            speak("Analyse fehlgeschlagen. Bitte versuche es später erneut.", () => {
                 isAnalyzing = false;
                 startListening();
             });
@@ -407,10 +437,13 @@ async function triggerAnalysis(mode, target = null, isRetryWithTorch = false) {
         if (isRetryWithTorch) await setTorch(false);
         isAnalyzing = false;
 
+        let rawError = err.name === 'AbortError' ? "Zeitüberschreitung (Timeout nach 60s)" : err.message;
+        saveErrorToFirebase(rawError, mode);
+
         if (err.name === 'AbortError') {
-            speak("Die Analyse hat das Zeitlimit von einer Minute überschritten. Bitte versuche es erneut.", () => startListening());
+            speak("Die Analyse hat das Zeitlimit überschritten. Bitte versuche es erneut.", () => startListening());
         } else {
-            speak("Verbindungsfehler zum Backend.", () => startListening());
+            speak("Verbindungsfehler zum Backend. Bitte versuche es später erneut.", () => startListening());
         }
     }
 }
@@ -436,7 +469,91 @@ function stopAllOutput() {
     statusBox.textContent = "Angehalten.";
 }
 
-// 9. INITIALISIERUNG
+// 9. ADMIN DASHBOARD LOGIK
+document.getElementById('btnAdmin').addEventListener('click', (e) => {
+    e.preventDefault();
+    document.getElementById('adminModal').style.display = 'block';
+});
+
+document.getElementById('btnCloseAdminLogin').addEventListener('click', () => {
+    document.getElementById('adminModal').style.display = 'none';
+    document.getElementById('adminPassword').value = '';
+});
+
+document.getElementById('btnCloseAdmin').addEventListener('click', async () => {
+    try {
+        await firebase.auth().signOut();
+    } catch (e) {}
+    document.getElementById('adminModal').style.display = 'none';
+    document.getElementById('adminDashboardView').style.display = 'none';
+    document.getElementById('adminLoginView').style.display = 'block';
+    document.getElementById('adminEmail').value = '';
+    document.getElementById('adminPassword').value = '';
+});
+
+document.getElementById('btnLoginSubmit').addEventListener('click', async () => {
+    const email = document.getElementById('adminEmail').value;
+    const password = document.getElementById('adminPassword').value;
+
+    try {
+        await firebase.auth().signInWithEmailAndPassword(email, password);
+        document.getElementById('adminLoginView').style.display = 'none';
+        document.getElementById('adminDashboardView').style.display = 'block';
+        loadErrorsForAdmin();
+    } catch (error) {
+        alert("Anmeldung fehlgeschlagen: " + error.message);
+        document.getElementById('adminPassword').value = '';
+    }
+});
+
+async function loadErrorsForAdmin() {
+    const container = document.getElementById('errorListContainer');
+    container.innerHTML = "Lade Fehler aus Datenbank...";
+
+    try {
+        const errorsRef = firebase.database().ref('app_errors');
+        const snapshot = await errorsRef.once('value');
+        
+        if (!snapshot.exists()) {
+            container.innerHTML = "<p>Keine Fehler vorhanden. Alles läuft stabil!</p>";
+            return;
+        }
+
+        let html = "<table style='width:100%; border-collapse: collapse; text-align: left;'>";
+        html += "<tr style='border-bottom: 1px solid #444;'><th style='padding:8px;'>Uhrzeit</th><th style='padding:8px;'>Modus</th><th style='padding:8px;'>Fehlermeldung</th><th style='padding:8px;'>Aktion</th></tr>";
+
+        snapshot.forEach(childSnapshot => {
+            const errorId = childSnapshot.key;
+            const data = childSnapshot.val();
+            
+            html += `<tr style='border-bottom: 1px solid #333;'>
+                <td style='padding:8px;'>${data.dateString || 'Unbekannt'}</td>
+                <td style='padding:8px;'>${data.mode}</td>
+                <td style='padding:8px; color: #ff8000;'>${data.error}</td>
+                <td style='padding:8px;'><button onclick="acknowledgeError('${errorId}')" style='background: #ff8000; color: white; border: none; padding: 5px 10px; cursor: pointer;'>Quittieren (Löschen)</button></td>
+            </tr>`;
+        });
+
+        html += "</table>";
+        container.innerHTML = html;
+
+    } catch (e) {
+        container.innerHTML = "Fehler beim Laden: " + e.message;
+    }
+}
+
+window.acknowledgeError = async function(errorId) {
+    if (confirm("Möchtest du diesen Fehler quittieren und aus der Datenbank löschen?")) {
+        try {
+            await firebase.database().ref('app_errors/' + errorId).remove();
+            loadErrorsForAdmin();
+        } catch (e) {
+            alert("Fehler beim Löschen: " + e.message);
+        }
+    }
+};
+
+// 10. INITIALISIERUNG
 async function init() {
     if (isStarted) return;
     isStarted = true;
@@ -464,7 +581,7 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 document.body.addEventListener('click', (e) => {
-    if (e.target.closest('.legal-footer')) return;
+    if (e.target.closest('.legal-footer') || e.target.closest('#adminModal')) return;
 
     if (!isStarted) {
         init();
