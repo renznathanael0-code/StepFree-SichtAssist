@@ -564,7 +564,7 @@ async function init() {
         });
         video.srcObject = stream;
         
-        speak("SichtAssist bereit. Sage Text, Farbe, Objekt, Geld, Zählen oder Suche. Für alle Optionen sage Hilfe.", () => {
+        speak("StepFree Vision bereit. Sage Text, Farbe, Objekt, Geld, Zählen oder Suche. Für alle Optionen sage Hilfe.", () => {
             startListening();
         });
 
