@@ -89,6 +89,51 @@ async function setTorch(enable) {
     return false;
 }
 
+// NEU: Automatische Helligkeitsprüfung vor dem Capturing
+async function checkBrightnessAndAutoTorch() {
+    if (!video.srcObject) return false;
+    const tracks = video.srcObject.getVideoTracks();
+    if (tracks.length === 0) return false;
+    const track = tracks[0];
+    
+    const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+    if (!capabilities.torch) return false;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 100;
+    canvas.height = 100;
+    const ctx = canvas.getContext('2d');
+    
+    try {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageData.data;
+        
+        let colorSum = 0;
+        for (let i = 0; i < data.length; i += 16) {
+            const r = data[i];
+            const g = data[i+1];
+            const b = data[i+2];
+            const avg = (r * 0.299 + g * 0.587 + b * 0.114);
+            colorSum += avg;
+        }
+        
+        const brightness = colorSum / (data.length / 16);
+        console.log("Gemessene Helligkeit:", brightness);
+
+        // Schwellenwert unter 40 gilt als dunkel
+        if (brightness < 40) {
+            console.log("Bild ist zu dunkel – schalte Taschenlampe automatisch ein!");
+            await track.applyConstraints({ advanced: [{ torch: true }] });
+            await new Promise(resolve => setTimeout(resolve, 350)); // Kurze Wartezeit fürs Licht
+            return true;
+        }
+    } catch (e) {
+        console.warn("Fehler bei der Helligkeitsprüfung:", e);
+    }
+    return false;
+}
+
 // 4. SPRACHERKENNUNG (STT) STEUERUNG
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition;
@@ -228,7 +273,7 @@ function promptForCountTarget() {
     });
 }
 
-// 5. BEFEHLE VERARBEITEN (Inkl. Kombinierte Befehle & Zählen)
+// 5. BEFEHLE VERARBEITEN
 function handleCommand(command) {
     if (isWaitingForSearchTarget) {
         clearTimeout(searchTimeoutTimer);
@@ -366,7 +411,7 @@ async function saveErrorToFirebase(errorMessage, mode) {
     }
 }
 
-// 7. BACKEND ANFRAGE
+// 7. BACKEND ANFRAGE (MIT INTELLIGenter BELEUCHTUNG)
 async function triggerAnalysis(mode, target = null, isRetryWithTorch = false) {
     if (!navigator.onLine) {
         speak("Keine Internetverbindung verfügbar. Bitte prüfe deine Verbindung.", () => startListening());
@@ -378,6 +423,8 @@ async function triggerAnalysis(mode, target = null, isRetryWithTorch = false) {
     
     playBeep(880, 0.15);
     
+    let torchWasAutoEnabled = false;
+
     if (isRetryWithTorch) {
         speak("Bild war zu dunkel. Schalte Licht ein und versuche es erneut...", null);
         await setTorch(true);
@@ -388,6 +435,9 @@ async function triggerAnalysis(mode, target = null, isRetryWithTorch = false) {
         if (mode === 'count') statusText = `Zähle ${target || 'Objekte'}...`;
         if (mode.includes('+')) statusText = "Führe kombinierte Analyse durch...";
         speak(statusText, null);
+
+        // Automatische Helligkeitsprüfung vor dem Foto-Capture
+        torchWasAutoEnabled = await checkBrightnessAndAutoTorch();
     }
 
     const controller = new AbortController();
@@ -406,12 +456,13 @@ async function triggerAnalysis(mode, target = null, isRetryWithTorch = false) {
         clearTimeout(timeoutId);
         const data = await response.json();
 
-        if (isRetryWithTorch) {
+        // Taschenlampe wieder ausschalten, falls sie automatisch oder per Retry an war
+        if (isRetryWithTorch || torchWasAutoEnabled) {
             await setTorch(false);
         }
 
         if (response.ok && data.result) {
-            if (data.result.includes('[RETRY_WITH_TORCH]') && !isRetryWithTorch) {
+            if (data.result.includes('[RETRY_WITH_TORCH]') && !isRetryWithTorch && !torchWasAutoEnabled) {
                 return triggerAnalysis(mode, target, true);
             }
 
@@ -421,11 +472,9 @@ async function triggerAnalysis(mode, target = null, isRetryWithTorch = false) {
                 startListening();
             });
         } else {
-            // Technischen Fehler abfangen und in Firebase speichern
             const rawError = data.details || data.error || `HTTP Fehler: ${response.status}`;
             saveErrorToFirebase(rawError, mode);
 
-            // Benutzerfreundliche Sprachausgabe
             speak("Analyse fehlgeschlagen. Bitte versuche es später erneut.", () => {
                 isAnalyzing = false;
                 startListening();
@@ -434,7 +483,7 @@ async function triggerAnalysis(mode, target = null, isRetryWithTorch = false) {
 
     } catch (err) {
         clearTimeout(timeoutId);
-        if (isRetryWithTorch) await setTorch(false);
+        if (isRetryWithTorch || torchWasAutoEnabled) await setTorch(false);
         isAnalyzing = false;
 
         let rawError = err.name === 'AbortError' ? "Zeitüberschreitung (Timeout nach 60s)" : err.message;
